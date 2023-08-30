@@ -1,12 +1,27 @@
-import os, io, sys
-import shutil
-import PIL.Image as PILimage
-from datetime import datetime
-from dateutil import parser
+import os
+import io
+import sys
 import re
 import hashlib
 import logging
+import sqlite3
+import shutil
 
+from datetime import datetime
+from dateutil import parser
+
+import PIL.Image as PILimage
+
+import utils
+
+
+# -------------------------------------------
+#  Datas for images/videos
+# -------------------------------------------
+#
+# Filename, extension, mime file_type, filepath, creation date, modify date, filename date, file hash?
+# exif date, exif infos, exif hash, imported, excluded
+#
 
 # -------------------------------------------
 #  Files extensions list
@@ -25,6 +40,207 @@ VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4
 # create logger
 logging.basicConfig(filename='app.log', level=logging.INFO)
 
+#
+# ---> Some inits
+#
+
+db      = utils.db_name
+restart = False
+
+
+#
+#    ====================================================================
+#     Database creation
+#    ====================================================================
+#
+
+def db_create(db):
+
+    """
+
+        Creates the database tables (unconditionnally).
+
+        Args:
+            db (text): Name of the file used for storing sqlite3 database
+
+        Returns:
+            cnx (sqlite3.Connection): Connection object (bound to the file _filename_)
+    """
+
+    cnx = sqlite3.connect(db)
+    #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
+    logging.info("Creating database %s", db)
+
+    #
+    # ---> Dropping old tables
+    #
+
+    try:
+
+        # Drop all tables
+
+        cnx.execute("DROP TABLE filelist")
+        cnx.execute("DROP TABLE params")
+        logging.info("Old database deleted.")
+
+    except sqlite3.OperationalError:
+
+        # Exception means no old database
+
+        print("No old database.")
+
+    #
+    # ---> Let's create the table used for storing files information
+    #
+    # Filename, extension, mime file_type, filepath, creation date, modify date, filename date, file hash?
+    # exif date, exif infos, exif hash, imported, excluded
+    cnx.execute("CREATE TABLE filelist (\
+                    fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
+                    filename TINYTEXT, \
+                    extension CHAR(30), \
+                    mime_type CHAR(30), \
+                    filepath VARCHAR(4096), \
+                    creation_date TEXT, \
+                    modify_date TEXT, \
+                    filename_date TEXT, \
+                    file_hash CHAR(256), \
+                    exif_date TEXT, \
+                    exif_content TEXT, \
+                    exif_hash CHAR(256), \
+                    size BIGINT, \
+                    protected BOOL, \
+                    marked_as_imported BOOL, \
+                    marked_to_delete BOOL) \
+                ")
+
+    # ---> Some useful indexes to speed up the processing
+
+    cnx.execute("CREATE INDEX index_filepath ON filelist (filepath, filename)")
+    cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
+    cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
+
+    #
+    # ---> Params table used to store infomation about the process and restart steps.
+    #
+    
+    cnx.execute("CREATE TABLE params(\
+                    key TINYTEXT,\
+                    value TEXT)\
+                ")
+
+    # --- > Default values
+
+    cnx.execute("INSERT INTO params VALUES ('last_path','')")
+
+    cnx.commit()
+
+    return cnx
+
+
+#
+#    ====================================================================
+#     Database connexion
+#    ====================================================================
+#
+
+def db_connect(db, restart = False):
+
+    """
+
+        Connects to the file which will be used for the sqlite3 database. If needed (= if you start a new search or if you've asked for a restart manually),
+        a new database will be created, else you just get the pointer to the file.
+
+        If the database exists, we look into to get the state of the last call of the script, to manage the restart option, else we create a new database.
+
+        Args:
+            db (text): Name of the file used for storing sqlite3 database
+            restart (boolean): (Optional) Indicates if your restart the process from the beginning or not
+        
+        Returns:
+            cnx (sqlite3.Connection): Connection object (bound to the file _filename_)
+
+    """
+
+    cnx = sqlite3.connect(db)
+
+    #
+    # ---> Did we ask for a restart or not?
+    #
+
+    if not restart:
+
+        # We didn't, so we continue the process. Does the table 'params' exist?
+
+        res = cnx.execute("SELECT count(*) FROM sqlite_master WHERE type ='table' AND name ='params';").fetchone()
+
+        if (res[0] == 1):
+
+            # Yes, so we look for the status. If the status is empty, no step has been executed
+            # so we have to recreate the database to start on clean basis.
+
+            step = get_status(cnx)
+
+            if (step is None):
+
+                # No step in the database => Let's recreate the DB
+                cnx.close()       
+                cnx = db_create(db)
+
+            else:
+
+                # The script is in progress
+                pass
+
+        else:
+
+            # No, there's no existing database, so we create one
+
+            cnx = db_create(db)
+
+    else:
+
+        #
+        #  'restart' is passed in args. So we drop & recreate the database
+        #
+
+        cnx = db_create(db)
+
+    return cnx
+
+
+#
+#    ====================================================================
+#     Get state of last call in the params table
+#    ====================================================================
+#
+
+def get_status(cnx):
+
+    """
+
+        Gets the status of the last process, if it has beend stored, to handle a restart if needed.
+
+        Args:
+            cnx (sqlite3.Connection): Connection object
+
+        Returns:
+            value (text): Name of the last current path
+
+    """
+
+    res = cnx.execute("SELECT value FROM params WHERE key='last_path'").fetchone()
+
+    #
+    # ---> Get last step
+    #
+
+    if (res is not None):
+        if (res[0] == ''):
+            res = None
+        else:
+            res = res[0]
+
+    return res
 
     
 # -------------------------------------------
@@ -55,6 +271,16 @@ def extract_date_from_filename(filename):
 # -------------------------------------------
 def main():
 # -------------------------------------------    
+
+    #
+    # ---> DB connection
+    #
+
+    cnx = db_connect(db, True)
+
+    #
+    # ---> Path to walk
+    #
 
     basepath    = "test"
     target      = "copie"
@@ -145,6 +371,12 @@ def main():
                 logging.error(str_log)
                     
     logging.info("End of Parsing")
+
+    # Closing database
+    # ---
+
+    cnx.close()
+
 
 
 # -------------------------------------------
