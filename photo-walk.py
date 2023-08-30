@@ -59,7 +59,7 @@ def main():
     basepath    = "test"
     target      = "copie"
 
-    logging.info("Parsing " + basepath + "directory")
+    logging.info("Parsing " + basepath + " directory")
 
     os.chdir(basepath)
 
