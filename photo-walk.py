@@ -1,10 +1,14 @@
+import utils
 import os
 import io
 import sys
 import re
 import hashlib
-import logging
+import binascii
+import time
 import sqlite3
+import signal
+import logging
 import shutil
 
 from datetime import datetime
@@ -12,7 +16,15 @@ from dateutil import parser
 
 import PIL.Image as PILimage
 
-import utils
+from colorama import Fore, Back, Style 
+from colorama import init
+
+#
+#  Some constants
+#
+
+FMT_STR_CONSIDERING_DIR = "Considering " + Fore.LIGHTGREEN_EX + Style.DIM + "{}" + Fore.RESET + Style.RESET_ALL + "..."
+FMT_STR_COMPLETED_DIR = "Completed directory lookup for " + Fore.LIGHTGREEN_EX + Style.DIM + "{}" + Fore.RESET + Style.RESET_ALL 
 
 
 # -------------------------------------------
@@ -38,6 +50,7 @@ VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4
 # -------------------------------------------
 
 # create logger
+
 logging.basicConfig(filename='app.log', level=logging.INFO)
 
 #
@@ -47,94 +60,28 @@ logging.basicConfig(filename='app.log', level=logging.INFO)
 db      = utils.db_name
 restart = False
 
-
 #
-#    ====================================================================
-#     Database creation
-#    ====================================================================
+# ---> Some inits
 #
 
-def db_create(db):
+algo = "sha1"
+db = utils.db_name
+filelist = utils.filelist_name
 
-    """
+restart = False
+global last_path
+global last_file
+last_path = None
+last_file = None
 
-        Creates the database tables (unconditionnally).
 
-        Args:
-            db (text): Name of the file used for storing sqlite3 database
+def exit_handler(signum, frame):
 
-        Returns:
-            cnx (sqlite3.Connection): Connection object (bound to the file _filename_)
-    """
+    print()
+    print("Normal exit from KeyboardInterrupt (CTRL+C)")
+    utils.checkpoint_db(cnx, last_path, last_file, commit = True)
+    exit(0)
 
-    cnx = sqlite3.connect(db)
-    #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
-    logging.info("Creating database %s", db)
-
-    #
-    # ---> Dropping old tables
-    #
-
-    try:
-
-        # Drop all tables
-
-        cnx.execute("DROP TABLE filelist")
-        cnx.execute("DROP TABLE params")
-        logging.info("Old database deleted.")
-
-    except sqlite3.OperationalError:
-
-        # Exception means no old database
-
-        print("No old database.")
-
-    #
-    # ---> Let's create the table used for storing files information
-    #
-    # Filename, extension, mime file_type, filepath, creation date, modify date, filename date, file hash?
-    # exif date, exif infos, exif hash, imported, excluded
-    cnx.execute("CREATE TABLE filelist (\
-                    fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
-                    filename TINYTEXT, \
-                    extension CHAR(30), \
-                    mime_type CHAR(30), \
-                    filepath VARCHAR(4096), \
-                    creation_date TEXT, \
-                    modify_date TEXT, \
-                    filename_date TEXT, \
-                    file_hash CHAR(256), \
-                    exif_date TEXT, \
-                    exif_content TEXT, \
-                    exif_hash CHAR(256), \
-                    size BIGINT, \
-                    protected BOOL, \
-                    marked_as_imported BOOL, \
-                    marked_to_delete BOOL) \
-                ")
-
-    # ---> Some useful indexes to speed up the processing
-
-    cnx.execute("CREATE INDEX index_filepath ON filelist (filepath, filename)")
-    cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
-    cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
-
-    #
-    # ---> Params table used to store infomation about the process and restart steps.
-    #
-    
-    cnx.execute("CREATE TABLE params(\
-                    key TINYTEXT,\
-                    value TEXT)\
-                ")
-
-    # --- > Default values
-
-    cnx.execute("INSERT INTO params VALUES ('last_path','')")
-
-    cnx.commit()
-
-    return cnx
 
 
 #
@@ -142,7 +89,6 @@ def db_create(db):
 #     Database connexion
 #    ====================================================================
 #
-
 def db_connect(db, restart = False):
 
     """
@@ -180,10 +126,10 @@ def db_connect(db, restart = False):
 
             step = get_status(cnx)
 
-            if (step is None):
+            if (step == None):
 
                 # No step in the database => Let's recreate the DB
-                cnx.close()       
+                cnx.close()        
                 cnx = db_create(db)
 
             else:
@@ -208,6 +154,98 @@ def db_connect(db, restart = False):
     return cnx
 
 
+
+#
+#    ====================================================================
+#     Database creation
+#    ====================================================================
+#
+
+def db_create(db):
+
+    """
+
+        Creates the database tables (unconditionnally).
+
+        Args:
+            db (text): Name of the file used for storing sqlite3 database
+
+        Returns:
+            cnx (sqlite3.Connection): Connection object (bound to the file _filename_)
+    """
+
+    cnx = sqlite3.connect(db)
+    #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
+    logging.info("Creating database %s", db)
+
+    #
+    # ---> Dropping old tables
+    #
+
+    try:
+
+        # Drop all tables
+
+        cnx.execute("DROP TABLE filelist")
+        cnx.execute("DROP TABLE params")
+        print("Old database deleted.")
+
+    except sqlite3.OperationalError:
+
+        # Exception means no old database
+
+        print("No old database.")
+
+    #
+    # ---> Let's create the table used for storing files information
+    #
+    
+    cnx.execute("CREATE TABLE filelist (\
+                    fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
+                    filename TINYTEXT, \
+                    extension CHAR(30), \
+                    mime_type CHAR(30), \
+                    filepath VARCHAR(4096), \
+                    creation_date TEXT, \
+                    modify_date TEXT, \
+                    filename_date TEXT, \
+                    file_hash CHAR(256), \
+                    exif_date TEXT, \
+                    exif_content TEXT, \
+                    exif_hash CHAR(256), \
+                    size BIGINT, \
+                    protected BOOL, \
+                    marked_as_imported BOOL, \
+                    marked_to_delete BOOL) \
+                ")
+    logging.info("Database successfully created")
+
+    # ---> Some useful indexes to speed up the processing
+
+    cnx.execute("CREATE INDEX index_filepath ON filelist (filepath, filename)")
+    cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
+    cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
+    logging.info("Indexes successfully created")
+
+    #
+    # ---> Params table used to store infomation about the process and restart steps.
+    #
+    
+    cnx.execute("CREATE TABLE params(\
+                    key TINYTEXT,\
+                    value TEXT)\
+                ")
+
+    # --- > Default values
+
+    cnx.execute("INSERT INTO params VALUES ('last_path','')")
+    cnx.execute("INSERT INTO params VALUES ('last_file','')")
+
+    cnx.commit()
+
+    return cnx
+
+
 #
 #    ====================================================================
 #     Get state of last call in the params table
@@ -224,28 +262,221 @@ def get_status(cnx):
             cnx (sqlite3.Connection): Connection object
 
         Returns:
-            value (text): Name of the last current path
+            value (text): Name of the last executed process
 
     """
 
-    res = cnx.execute("SELECT value FROM params WHERE key='last_path'").fetchone()
+    res = cnx.execute("SELECT value FROM params WHERE key='last_step'").fetchone()
 
     #
     # ---> Get last step
     #
 
-    if (res is not None):
+    if (res != None):
         if (res[0] == ''):
-            res = None
+            res= None
         else:
             res = res[0]
 
-    return res
+    #
+    # ---> Get last ID (fid or hash)
+    # 
 
-    
-# -------------------------------------------
+    last_path = cnx.execute("SELECT value FROM params WHERE key='last_path'").fetchone()
+    last_file = cnx.execute("SELECT value FROM params WHERE key='last_file'").fetchone()
+
+    return last_path, last_file
+
+
+#
+#    ====================================================================
+#     Set state of last (=current) step executed in the params table
+#    ====================================================================
+#
+
+def checkpoint_db(cnx, last_path, last_file = None, commit = False):
+
+    """
+
+        Sets the status of the current process by storing the name of the last well-executed step.
+
+        Args:  
+            cnx (sqlite3.Connection): Connection object
+            last_step (text): Name of the last well-executed step
+
+        Returns:
+            nothing
+
+    """
+
+
+    # We update the params table with the last well completed step
+
+    cnx.execute("UPDATE params SET value=? WHERE key='last_path'", (last_path,))
+    cnx.execute("UPDATE params SET value=? WHERE key='last_file'", (last_file,))
+
+    if (commit):
+        cnx.commit()
+
+    return 
+
+
+#
+#    ====================================================================
+#     Directory calculation (for all files in many directories)
+#    ====================================================================
+#
+
+def directories_lookup(cnx, basepath_list):
+
+    """
+        Args:
+            cnx (sqlite3.Connection): Connection object
+            basepath (text): Array of file paths we will look into.
+
+        Returns:
+            t (time): The execution time of this function
+            nb_to_process (int): The number of files we have to process   
+
+    """
+                
+    t_elaps = 0.0
+
+    # We look for the directories already looked up
+
+    completed_dir = []
+
+    res = cnx.execute("SELECT ALL value FROM params WHERE key = 'completed_dir'")
+
+    for dir_name in res:
+        completed_dir.append(dir_name[0])
+        print(FMT_STR_COMPLETED_DIR.format(dir_name[0]))
+
+    # Loop over directories
+
+    for basepath in basepath_list:
+
+        line        = basepath.rstrip("\n").split(";")
+
+        if line[0] != '':
+
+            basepath = line[0]
+
+            # If the directory has been completed, we skip it. Else, we restart the lookup from the beginning.
+
+            if (basepath not in completed_dir):
+
+                # Restart point here. We delete what has been done for this directory (for it has not been completed)
+                cnx.execute("DELETE FROM filelist WHERE filepath=?", (basepath,))
+                cnx.commit()
+
+                logging.info(FMT_STR_CONSIDERING_DIR.format(basepath))
+                t = directory_lookup(cnx, basepath)
+                
+                t_elaps += t
+
+    # Returning nb of files to process in the table. Should be the same as nb...
+
+    r = cnx.execute("SELECT COUNT(*) FROM filelist")
+    nb_to_process = r.fetchone()[0]
+
+    return t_elaps, nb_to_process
+
+
+#
+#    ====================================================================
+#     Directory calculation (for all files in one directory)
+#    ====================================================================
+#
+
+def directory_lookup(cnx, basepath):
+
+    """
+
+        Looks (hierarchically) for all files within the folder structure, and stores the path and the 
+        name of each file. No file access is made (to save time).
+
+        Args:
+            cnx (sqlite3.Connection): Connection object
+            basepath (text): Array of file paths we will look into.
+
+        Returns:
+            t (time): The execution time of this function
+
+    """
+
+    global last_path, last_file
+
+    # Start time
+    chrono = utils.Chrono()
+    chrono.start()
+
+    # Nb of files init
+    nb = 0
+
+    # Filepath init
+
+    if (basepath == ""):
+        basepath = "."
+
+    #
+    # ---> Files discovering. Thanks to Python, we just need to call an existing function...
+    #
+
+    for root, _, files in os.walk(basepath, topdown=True):
+
+        #
+        #  We just look for files, we don't process the directories
+        #
+
+        for name in files:
+
+            # Hey, we got one (file)!
+
+            nb = nb + 1
+            cnx.execute("INSERT INTO filelist(filename, filepath, size)\
+                            VALUES (?, ?, ?)",(name, root, 1))
+
+            # Displaying progression and commit (occasionnaly)
+
+            if ((nb % 100) == 0):
+                last_path = ""
+                lasy_file = name
+                print("Discovering #{} files ({:.2f} sec)".format(nb, chrono.elapsed()), end="\r", flush=True)
+                if ((nb % 1000) == 0):
+                    cnx.commit()
+
+            """
+            except PermissionError:
+
+                cnx.execute("INSERT INTO filelist(pre_hash, path, name, access_denied)\
+                                VALUES (?, ?, ?, ?)",("?", root, name, True))
+
+            except OSError as ose:
+
+                cnx.execute("INSERT INTO filelist(pre_hash, path, name, os_errno, os_strerror)\
+                                VALUES (?, ?, ?, ?, ?)",("?", root, name, ose.errno, ose.strerror))
+            """
+
+    #
+    # ---> Last commit
+    #
+
+    checkpoint_db(cnx, "last_path_example", "last_file_example", commit = True)
+
+    # End time
+    chrono.stop()
+
+    return chrono.elapsed()
+
+
+#
+#    ====================================================================
+#     Extract date in the name of the file
+#    ====================================================================
+#
+
 def extract_date_from_filename(filename):
-# -------------------------------------------
 
     # Define a regex pattern to capture dates in various formats
     date_pattern = r'(\d{4}-\d{2}-\d{2})|(\d{2}-\d{2}-\d{4})|(\d{2}/\d{2}/\d{4})|(\d{8}-\d{6})|(\d{8}[T_]\d{6})'
@@ -266,117 +497,77 @@ def extract_date_from_filename(filename):
         return reformatted_date
     else:
         return None
-    
 
-# -------------------------------------------
+
+
+
+#
+#    ====================================================================
+#
+#     Main part
+#
+#    ====================================================================
+#
+
 def main():
-# -------------------------------------------    
+
+    # Colorama init
+
+    init()
+
+    # 
+    # ---> Check for 'restart' argument
+    #
+
+    arguments = utils.check_arguments(sys.argv)
+
+    if ("restart" in arguments):
+        restart = True
+    else:
+        restart = False
+
+    #
+    # ---> Catch the exit signal to commit the database with last checkpoint
+    #
+
+    signal.signal(signal.SIGINT, exit_handler)
+
+    #
+    # ---> Read the directory files list
+    #
+
+    with open(filelist, "r") as f:
+        basepath = f.readlines()
+
+    logging.debug(basepath)
+    logging.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
     #
     # ---> DB connection
     #
 
-    cnx = db_connect(db, True)
+    cnx = db_connect(db, restart)
 
-    #
-    # ---> Path to walk
-    #
+    # Looking for files
+    # ---
 
-    basepath    = "test"
-    target      = "copie"
+    t, nb = directories_lookup(cnx, basepath)
+    print("Files lookup duration: {:.2f} sec for {} files.".format(t, nb))
 
-    logging.info("Parsing " + basepath + " directory")
+    # Calculate size of all files
+    # ---
 
-    os.chdir(basepath)
+    res = cnx.execute("select sum(size) FROM filelist")
+    size = res.fetchone()[0]
 
-    for root, _, files in os.walk(".", topdown=True):
-
-        for f_name in files:
-
-            # File infos
-            
-            img_path = os.path.join(root, f_name)
-            file_ext = os.path.splitext(img_path)[1].lower()
-            fs = os.stat(img_path)
-            file_creation_date = datetime.fromtimestamp(fs.st_ctime)
-            extracted_date = extract_date_from_filename(f_name)
-            file_creation_day = "{:04d}-{:02d}-{:02d}".format(file_creation_date.year, file_creation_date.month, file_creation_date.day)
-
-            try:
-
-                copy = False
-                folder_date = None
-                exif_date = None
-                exif_hash = None
-                
-                if (file_ext in PICT_EXT_LIST):
-
-                    # exif-like file
-
-                    copy = True
-                    
-                    img = PILimage.open(img_path)
-                    img_exif = img._getexif()
-                    exif_date = img_exif.get(36867)
-                    folder_date = exif_date[:10].replace(':','-')
-
-                    img_exif_str = str(img_exif).encode('utf-8')
-                    exif_hash = hashlib.sha256(img_exif_str).hexdigest()
-
-                elif ((file_ext in RAW_PICT_EXT_LIST) or (file_ext in VIDEO_EXT_LIST)):
-                    
-                    # video or raw file
-
-                    copy = True
-                    if extracted_date:
-                        folder_date = extracted_date
-                    else:
-                        folder_date = file_creation_day
-
-                # Copying file
-
-                if (copy):
-
-                    # Destination folder (based on date)
-                    
-                    yr = folder_date[0:4]
-                    dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
-
-                    yr_path = target + os.sep + yr
-                    pic_path = yr_path + os.sep + dest_dt + os.sep
-                
-                    output_extracted_date = extracted_date if extracted_date is not None else ""
-                    output_exif_hash = exif_hash if exif_hash is not None else ""
-                    logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, file_creation_day, exif_date, folder_date, f_name[:30], output_exif_hash))
-
-                    if not(os.path.exists(yr_path)):
-                        str_log = f"Folder {yr_path} unkown, creating..."
-                        logging.info(str_log)
-                        os.makedirs(yr_path)
-                        
-                    if not(os.path.exists(pic_path)):
-                        str_log = f"Folder {pic_path} unkown, creating..."
-                        logging.info(str_log)
-                        os.makedirs(pic_path)
-                    
-                    if not(os.path.exists(pic_path + f_name)):
-                        str_log = f"Copying {img_path} --> {pic_path + f_name}"
-                        logging.info(str_log)
-                        print("{} --> {}".format(img_path, pic_path + f_name))
-                        shutil.copy2(img_path, pic_path + f_name)
-                
-            except Exception as e:
-
-                str_log = f"Error {str(e)} on {img_path}"
-                logging.error(str_log)
-                    
-    logging.info("End of Parsing")
+    print("Size of all files: {}".format(utils.humanbytes(size)))
 
     # Closing database
     # ---
 
     cnx.close()
 
+    return
 
 
 # -------------------------------------------
@@ -384,4 +575,5 @@ def main():
 # -------------------------------------------
 
 if __name__ == '__main__':
+
     main()
