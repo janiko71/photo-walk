@@ -429,13 +429,16 @@ def directory_lookup(cnx, basepath):
         #  We just look for files, we don't process the directories
         #
 
-        for name in files:
+        for filename in files:
 
             # Hey, we got one (file)!
 
+            filepath = os.path.join(root, filename)
+            filesize = os.path.getsize(filepath)
+
             nb = nb + 1
             cnx.execute("INSERT INTO filelist(filename, filepath, size)\
-                            VALUES (?, ?, ?)",(name, root, 1))
+                            VALUES (?, ?, ?)",(filename, root, filesize))
 
             # Displaying progression and commit (occasionnaly)
 
