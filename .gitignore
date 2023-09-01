@@ -52,6 +52,7 @@ coverage.xml
 cover/
 test*/
 copies/
+dest/
 *.db
 *.db-journal
 *.txt

@@ -1,6 +1,6 @@
 # 
 # ---------------------------------------------------------------------------------------------------------------------------
-# (1) Fill table with destination folder informations, without copying. Put the DB in destination folder root.
+# (1) Fill table with destination folder informations, without copying. Put the DB in destination folder root. Mark as protected.
 # ---------------------------------------------------------------------------------------------------------------------------
 # (2) Walk through source directory and copy if needed the files to the destination
 # ---------------------------------------------------------------------------------------------------------------------------
@@ -19,6 +19,7 @@ import sqlite3
 import signal
 import logging
 import shutil
+import configparser
 
 from datetime import datetime
 from dateutil import parser
@@ -39,16 +40,12 @@ FMT_STR_COMPLETED_DIR = "Completed directory lookup for " + Fore.LIGHTGREEN_EX +
 
 
 # -------------------------------------------
-#  Datas for images/videos
+#  Files extensions list
 # -------------------------------------------
 #
 # Filename, extension, mime file_type, filepath, creation date, modify date, filename date, file hash?
 # exif date, exif infos, exif hash, imported, excluded
 #
-
-# -------------------------------------------
-#  Files extensions list
-# -------------------------------------------
 
 PICT_EXT_LIST = {".jpg", ".jpeg", ".jfif", ".bmp", ".gif", ".png", ".tif", ".tiff", ".webp"}
 RAW_PICT_EXT_LIST = {".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dcs", ".dng", ".drf", ".gpr", \
@@ -56,21 +53,45 @@ RAW_PICT_EXT_LIST = {".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dcs", ".dng", ".d
                      ".raw", ".rw2", ".sr2", ".srf", ".srw", ".x3f"}
 VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4", ".m4p", ".m4v", ".avi", ".ts", ".webm", ".wm", ".wmv", ".avchd"}
 
+
+
+# -------------------------------------------
+#  Global configuration
+# -------------------------------------------
+
+# Create a ConfigParser object
+config = configparser.ConfigParser()
+
+# Read the configuration file
+config.read('photo-walk.ini') 
+
+
+
 # -------------------------------------------
 #  Log configuration
 # -------------------------------------------
 
+log_level_mapping = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+
+log_level_text = config['log']['level']
+log_level = log_level_mapping.get(log_level_text, logging.INFO) # Default: INFO
+
 # create logger
 
-logging.basicConfig(filename='app.log', level=logging.INFO)
+logging.basicConfig(filename=config['log']['file'], level=log_level)
 
 #
 # ---> Some inits
 #
 
-db      = utils.db_name
-restart = True
-filelist = utils.filelist_name
+db      = config['db']['name']
+restart = config['restart']['restart']
 
 global last_path
 global last_file
@@ -679,28 +700,16 @@ def main():
 
     init()
 
-    # 
-    # ---> Check for 'restart' argument
-    #
-
-    arguments = utils.check_arguments(sys.argv)
-
-    if ("restart" in arguments):
-        restart = True
-    else:
-        restart = False
-
     #
     # ---> Read the directory files list
     #
 
-    with open(filelist, "r") as f:
-        basepath = f.readlines()
+    basepath = config['directories']['sources'].split(',')
 
     logging.debug(basepath)
     logging.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
-    target = "copies"
+    target = config['directories']['destination']
 
     #
     # ---> DB connection

@@ -4,10 +4,6 @@ import time
 #  Global constants (default)
 #
 
-db_name       = "photo-walk.db"
-filelist_name = "filelist.txt"
-trash_dir     = "G:\\trash"
-
 
 #    -------------------------------
 #
