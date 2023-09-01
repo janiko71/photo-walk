@@ -50,8 +50,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-test/
+test*/
+copies/
 *.db
+*.db-journal
 *.txt
 
 # Translations

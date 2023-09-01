@@ -16,6 +16,7 @@ from datetime import datetime
 from dateutil import parser
 
 import PIL.Image as PILimage
+from PIL.ExifTags import TAGS, GPSTAGS
 
 from colorama import Fore, Back, Style 
 from colorama import init
@@ -59,17 +60,9 @@ logging.basicConfig(filename='app.log', level=logging.INFO)
 #
 
 db      = utils.db_name
-restart = False
-
-#
-# ---> Some inits
-#
-
-algo = "sha1"
-db = utils.db_name
+restart = True
 filelist = utils.filelist_name
 
-restart = False
 global last_path
 global last_file
 last_path = None
@@ -330,7 +323,7 @@ def checkpoint_db(cnx, last_path, last_file = None, commit = False):
 #    ====================================================================
 #
 
-def directories_lookup(cnx, basepath_list):
+def directories_lookup(cnx, basepath_list, target):
 
     """
         Args:
@@ -344,6 +337,9 @@ def directories_lookup(cnx, basepath_list):
     """
                 
     t_elaps = 0.0
+    nb_all_files = 0
+    nb_all_pics = 0
+    nb_all_raw_videos = 0
 
     # We look for the directories already looked up
 
@@ -374,16 +370,19 @@ def directories_lookup(cnx, basepath_list):
                 cnx.commit()
 
                 logging.info(FMT_STR_CONSIDERING_DIR.format(basepath))
-                t = directory_lookup(cnx, basepath)
+                t, nb_files, nb_pics, nb_raw_videos = directory_lookup(cnx, basepath, target)
                 
                 t_elaps += t
+                nb_all_files += nb_files
+                nb_all_pics += nb_pics
+                nb_all_files += nb_raw_videos
 
     # Returning nb of files to process in the table. Should be the same as nb...
 
     r = cnx.execute("SELECT COUNT(*) FROM filelist")
     nb_to_process = r.fetchone()[0]
 
-    return t_elaps, nb_to_process
+    return t_elaps, nb_all_files, nb_all_pics, nb_all_raw_videos
 
 
 #
@@ -392,7 +391,7 @@ def directories_lookup(cnx, basepath_list):
 #    ====================================================================
 #
 
-def directory_lookup(cnx, basepath):
+def directory_lookup(cnx, basepath, target):
 
     """
 
@@ -415,7 +414,9 @@ def directory_lookup(cnx, basepath):
     chrono.start()
 
     # Nb of files init
-    nb = 0
+    nb_files = 0
+    nb_pics = 0
+    nb_raw_videos = 0
 
     # Filepath init
 
@@ -437,7 +438,6 @@ def directory_lookup(cnx, basepath):
             # Hey, we got one (file)!
 
             file_path = os.path.join(dir_path, file_name)
-            file_size = os.path.getsize(file_path)
 
             # Obtenir l'extension du fichier
             file_extension = os.path.splitext(file_name)[1]
@@ -445,20 +445,117 @@ def directory_lookup(cnx, basepath):
             # Obtenir le type MIME
             file_mime_type, _ = mimetypes.guess_type(file_name)
 
-            nb = nb + 1
-            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size)\
-                            VALUES (?, ?, ?, ?, ?)",(file_name, file_extension, file_mime_type, dir_path, file_size))
-            #cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, )\
-            #                VALUES (?, ?, ?, ?, ?)",(file_name, file_extension, file_mime_type, dir_path, file_size))
+            # PS dates
+            modification_date = datetime.fromtimestamp(os.path.getmtime(file_path))
+            formatted_modification_date = modification_date.strftime('%Y-%m-%d %H:%M:%S')
+            creation_date = datetime.fromtimestamp(os.path.getctime(file_path))
+            formatted_creation_date = creation_date.strftime('%Y-%m-%d %H:%M:%S')
+            formatted_creation_date_short = creation_date.strftime('%Y-%m-%d')
+            extracted_date = extract_date_from_filename(file_name)
+
+            nb_files = nb_files + 1
+
+            try:
+
+                copy = False
+                folder_date = None
+                exif_date = None
+                exif_hash = None
+                
+                if (file_extension in PICT_EXT_LIST):
+
+                    # exif-like file
+
+                    nb_pics = nb_pics + 1
+
+                    copy = True
+                    
+                    img = PILimage.open(file_path)
+                    img_exif_data = img._getexif()
+
+                    if img_exif_data:
+
+                        # Exif present
+
+                        exif_date = img_exif_data.get(36867)
+                        folder_date = exif_date[:10].replace(':','-')
+                        img_exif_str = str(img_exif_data).encode('utf-8')
+                        exif_hash = hashlib.sha256(img_exif_str).hexdigest()
+
+                    else:
+
+                        # No EXIF data
+                        pass
+
+                elif ((file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
+                    
+                    # video or raw file
+
+                    nb_raw_videos = nb_raw_videos + 1
+
+                    copy = True
+                    if extracted_date:
+                        folder_date = extracted_date
+                    else:
+                        folder_date = creation_date
+
+                if ((file_extension in PICT_EXT_LIST) or (file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
+
+                    # File is PIC or RAW or VIDEO ==> added in DB
+
+                    cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date)\
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)",\
+                                (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
+                                 formatted_creation_date, formatted_modification_date, extracted_date))
+
+                # Copying file
+
+                if (copy):
+
+                    # Destination folder (based on date)
+                    
+                    yr = folder_date[0:4]
+                    dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
+
+                    yr_path = target + os.sep + yr
+                    pic_path = yr_path + os.sep + dest_dt + os.sep
+                
+                    output_extracted_date = extracted_date if extracted_date is not None else ""
+                    output_exif_date = exif_date if exif_date is not None else ""
+                    logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
+
+                    # Inserting infos in DB
+
+                    # Copying
+                    
+                    if not(os.path.exists(yr_path)):
+                        str_log = f"Folder {yr_path} unkown, creating..."
+                        logging.info(str_log)
+                        os.makedirs(yr_path)
+                        
+                    if not(os.path.exists(pic_path)):
+                        str_log = f"Folder {pic_path} unkown, creating..."
+                        logging.info(str_log)
+                        os.makedirs(pic_path)
+                    
+                    if not(os.path.exists(pic_path + file_name)):
+                        str_log = f"Copying {file_path} --> {pic_path + file_name}"
+                        logging.info(str_log)
+                        print("{} --> {}".format(file_path, pic_path + file_name))
+                        shutil.copy2(file_path, pic_path + file_name)
+                
+            except Exception as e:
+
+                str_log = f"Error {str(e)} on {file_path}"
+                logging.error(str_log)
 
             # Displaying progression and commit (occasionnaly)
 
-            if ((nb % 100) == 0):
+            if ((nb_files % 100) == 0):
                 last_path = file_path
                 last_file = file_name
                 print("Discovering #{} files ({:.2f} sec)".format(nb, chrono.elapsed()), end="\r", flush=True)
-                if ((nb % 1000) == 0):
-                    cnx.commit()
+                cnx.commit()
 
             """
             except PermissionError:
@@ -481,7 +578,7 @@ def directory_lookup(cnx, basepath):
     # End time
     chrono.stop()
 
-    return chrono.elapsed()
+    return chrono.elapsed(), nb_files, nb_pics, nb_raw_videos
 
 
 #
@@ -550,6 +647,8 @@ def main():
     logging.debug(basepath)
     logging.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
+    target = "copies"
+
     #
     # ---> DB connection
     #
@@ -565,8 +664,11 @@ def main():
     # Looking for files
     # ---
 
-    t, nb = directories_lookup(cnx, basepath)
-    print("Files lookup duration: {:.2f} sec for {} files.".format(t, nb))
+    t, nb_files, nb_pics, nb_raw_videos = directories_lookup(cnx, basepath, target)
+    print("Files lookup duration: {:.2f} sec for {} files.".format(t, nb_files))
+    print("Nb. of files:", nb_files)
+    print("Nb. of PIC files:", nb_pics)
+    print("Nb. of RAW/Video files:", nb_raw_videos)
 
     # Calculate size of all files
     # ---
