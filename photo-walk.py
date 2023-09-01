@@ -1,3 +1,11 @@
+# 
+# ---------------------------------------------------------------------------------------------------------------------------
+# (1) Fill table with destination folder informations, without copying. Put the DB in destination folder root.
+# ---------------------------------------------------------------------------------------------------------------------------
+# (2) Walk through source directory and copy if needed the files to the destination
+# ---------------------------------------------------------------------------------------------------------------------------
+#
+
 import mimetypes
 import utils
 import os
@@ -17,6 +25,7 @@ from dateutil import parser
 
 import PIL.Image as PILimage
 from PIL.ExifTags import TAGS, GPSTAGS
+import exifread
 
 from colorama import Fore, Back, Style 
 from colorama import init
@@ -470,6 +479,7 @@ def directory_lookup(cnx, basepath, target):
 
                     copy = True
                     
+                    """
                     img = PILimage.open(file_path)
                     img_exif_data = img._getexif()
 
@@ -486,6 +496,35 @@ def directory_lookup(cnx, basepath, target):
 
                         # No EXIF data
                         pass
+                    """
+
+                    with open(file_path, 'rb') as file:
+                        tags = exifread.process_file(file, details=False)
+
+                    if 'EXIF DateTimeOriginal' in tags:
+
+                        date_text = tags['EXIF DateTimeOriginal'].printable
+                        date_parts = date_text.split(' ')
+                        exif_date = date_parts[0].replace(':', '-') + ' ' + date_parts[1]
+                        folder_date = exif_date[:10].replace(':','-')
+                        #img_exif_str = str(img_exif_data).encode('utf-8')
+                        #exif_hash = hashlib.sha256(img_exif_str).hexdigest()
+
+                        exif_info = ""
+                        for tag, value in tags.items():
+                            exif_info += f"{tag}:{value}\n"
+                        logging.debug(exif_info)
+                        # Get EXIF hash
+                        sha256_hasher = hashlib.sha256()
+                        sha256_hasher.update(exif_info.encode('utf-8'))
+                        exif_hash = sha256_hasher.hexdigest()
+
+                    else:
+
+                        exif_date = ""
+                        exif_hash = ""
+                        folder_date = formatted_creation_date_short
+
 
                 elif ((file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
                     
@@ -495,54 +534,68 @@ def directory_lookup(cnx, basepath, target):
 
                     copy = True
                     if extracted_date:
-                        folder_date = extracted_date
+                        folder_date = formatted_creation_date_short
                     else:
-                        folder_date = creation_date
+                        folder_date = formatted_creation_date_short
 
                 if ((file_extension in PICT_EXT_LIST) or (file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
 
                     # File is PIC or RAW or VIDEO ==> added in DB
 
-                    cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date)\
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)",\
-                                (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
-                                 formatted_creation_date, formatted_modification_date, extracted_date))
+                    # Open the file and read it in binary mode
+                    sha256_hasher = hashlib.sha256()
+                    with open(file_path, 'rb') as file:
+                        # Read the file in small chunks to efficiently handle large files
+                        for chunk in iter(lambda: file.read(4096), b''):
+                            sha256_hasher.update(chunk)
 
-                # Copying file
+                    # Get the hexadecimal representation of the hash
+                    file_hash = sha256_hasher.hexdigest()
 
-                if (copy):
+                    res = cnx.execute("SELECT fid FROM filelist WHERE file_hash=?", (file_hash,)).fetchone()
 
-                    # Destination folder (based on date)
-                    
-                    yr = folder_date[0:4]
-                    dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
+                    if res is None:
 
-                    yr_path = target + os.sep + yr
-                    pic_path = yr_path + os.sep + dest_dt + os.sep
-                
-                    output_extracted_date = extracted_date if extracted_date is not None else ""
-                    output_exif_date = exif_date if exif_date is not None else ""
-                    logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
+                        # Only if not existing!
 
-                    # Inserting infos in DB
+                        cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
+                                    (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
+                                    formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash))
 
-                    # Copying
-                    
-                    if not(os.path.exists(yr_path)):
-                        str_log = f"Folder {yr_path} unkown, creating..."
-                        logging.info(str_log)
-                        os.makedirs(yr_path)
+                        # Copying file only if not existing in the DB
+
+                        if (copy):
+
+                            # Destination folder (based on date)
+                            
+                            yr = folder_date[0:4]
+                            dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
+
+                            yr_path = target + os.sep + yr
+                            pic_path = yr_path + os.sep + dest_dt + os.sep
                         
-                    if not(os.path.exists(pic_path)):
-                        str_log = f"Folder {pic_path} unkown, creating..."
-                        logging.info(str_log)
-                        os.makedirs(pic_path)
-                    
-                    if not(os.path.exists(pic_path + file_name)):
-                        str_log = f"Copying {file_path} --> {pic_path + file_name}"
-                        logging.info(str_log)
-                        print("{} --> {}".format(file_path, pic_path + file_name))
-                        shutil.copy2(file_path, pic_path + file_name)
+                            output_extracted_date = extracted_date if extracted_date is not None else ""
+                            output_exif_date = exif_date if exif_date is not None else ""
+                            logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
+
+                            # Copying
+                            
+                            if not(os.path.exists(yr_path)):
+                                str_log = f"Folder {yr_path} unkown, creating..."
+                                logging.info(str_log)
+                                os.makedirs(yr_path)
+                                
+                            if not(os.path.exists(pic_path)):
+                                str_log = f"Folder {pic_path} unkown, creating..."
+                                logging.info(str_log)
+                                os.makedirs(pic_path)
+                            
+                            if not(os.path.exists(pic_path + file_name)):
+                                str_log = f"Copying {file_path} --> {pic_path + file_name}"
+                                logging.info(str_log)
+                                print("{} --> {}".format(file_path, pic_path + file_name))
+                                shutil.copy2(file_path, pic_path + file_name)
                 
             except Exception as e:
 
@@ -554,7 +607,7 @@ def directory_lookup(cnx, basepath, target):
             if ((nb_files % 100) == 0):
                 last_path = file_path
                 last_file = file_name
-                print("Discovering #{} files ({:.2f} sec)".format(nb, chrono.elapsed()), end="\r", flush=True)
+                print("Discovering #{} files ({:.2f} sec)".format(nb_files, chrono.elapsed()), end="\r", flush=True)
                 cnx.commit()
 
             """
