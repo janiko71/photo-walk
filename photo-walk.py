@@ -1,3 +1,4 @@
+import mimetypes
 import utils
 import os
 import io
@@ -79,7 +80,7 @@ def exit_handler(signum, frame):
 
     print()
     print("Normal exit from KeyboardInterrupt (CTRL+C)")
-    utils.checkpoint_db(cnx, last_path, last_file, commit = True)
+    #utils.checkpoint_db(cnx, last_path, last_file, commit = True)
     exit(0)
 
 
@@ -176,7 +177,7 @@ def db_create(db):
 
     cnx = sqlite3.connect(db)
     #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
-    logging.info("Creating database %s", db)
+    logging.info("Creating tables on database %s", db)
 
     #
     # ---> Dropping old tables
@@ -188,7 +189,7 @@ def db_create(db):
 
         cnx.execute("DROP TABLE filelist")
         cnx.execute("DROP TABLE params")
-        print("Old database deleted.")
+        print("Old tables deleted.")
 
     except sqlite3.OperationalError:
 
@@ -218,7 +219,7 @@ def db_create(db):
                     marked_as_imported BOOL, \
                     marked_to_delete BOOL) \
                 ")
-    logging.info("Database successfully created")
+    logging.info("Filetable successfully created")
 
     # ---> Some useful indexes to speed up the processing
 
@@ -240,6 +241,8 @@ def db_create(db):
 
     cnx.execute("INSERT INTO params VALUES ('last_path','')")
     cnx.execute("INSERT INTO params VALUES ('last_file','')")
+
+    logging.info("Params table successfully created")
 
     cnx.commit()
 
@@ -423,28 +426,36 @@ def directory_lookup(cnx, basepath):
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
     #
 
-    for root, _, files in os.walk(basepath, topdown=True):
+    for dir_path, _, files in os.walk(basepath, topdown=True):
 
         #
         #  We just look for files, we don't process the directories
         #
 
-        for filename in files:
+        for file_name in files:
 
             # Hey, we got one (file)!
 
-            filepath = os.path.join(root, filename)
-            filesize = os.path.getsize(filepath)
+            file_path = os.path.join(dir_path, file_name)
+            file_size = os.path.getsize(file_path)
+
+            # Obtenir l'extension du fichier
+            file_extension = os.path.splitext(file_name)[1]
+
+            # Obtenir le type MIME
+            file_mime_type, _ = mimetypes.guess_type(file_name)
 
             nb = nb + 1
-            cnx.execute("INSERT INTO filelist(filename, filepath, size)\
-                            VALUES (?, ?, ?)",(filename, root, filesize))
+            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size)\
+                            VALUES (?, ?, ?, ?, ?)",(file_name, file_extension, file_mime_type, dir_path, file_size))
+            #cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, )\
+            #                VALUES (?, ?, ?, ?, ?)",(file_name, file_extension, file_mime_type, dir_path, file_size))
 
             # Displaying progression and commit (occasionnaly)
 
             if ((nb % 100) == 0):
-                last_path = ""
-                lasy_file = name
+                last_path = file_path
+                last_file = file_name
                 print("Discovering #{} files ({:.2f} sec)".format(nb, chrono.elapsed()), end="\r", flush=True)
                 if ((nb % 1000) == 0):
                     cnx.commit()
@@ -530,12 +541,6 @@ def main():
         restart = False
 
     #
-    # ---> Catch the exit signal to commit the database with last checkpoint
-    #
-
-    signal.signal(signal.SIGINT, exit_handler)
-
-    #
     # ---> Read the directory files list
     #
 
@@ -550,6 +555,12 @@ def main():
     #
 
     cnx = db_connect(db, restart)
+
+    #
+    # ---> Catch the exit signal to commit the database with last checkpoint
+    #
+
+    signal.signal(signal.SIGINT, exit_handler)
 
     # Looking for files
     # ---
