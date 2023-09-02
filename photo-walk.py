@@ -756,6 +756,8 @@ def main():
 
     res = cnx.execute("select sum(size) FROM filelist")
     size = res.fetchone()[0]
+    if size is None:
+        size = 0
 
     print("Size of all files: {}".format(utils.humanbytes(size)))
 
