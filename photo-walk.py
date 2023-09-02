@@ -367,21 +367,20 @@ def directories_lookup(cnx, basepath_list, target):
     """
                 
     t_elaps = 0.0
+    nb_dest_files = 0
+    nb_dest_pics = 0
+    nb_dest_raw_videos = 0
     nb_all_files = 0
     nb_all_pics = 0
     nb_all_raw_videos = 0
+    nb_files_copied = 0
 
-    # We look for the directories already looked up
+    # First of all, we look into the dest folder to see what is present. No basepath, only target folder
 
-    completed_dir = []
+    logging.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
+    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target)
 
-    res = cnx.execute("SELECT ALL value FROM params WHERE key = 'completed_dir'")
-
-    for dir_name in res:
-        completed_dir.append(dir_name[0])
-        print(FMT_STR_COMPLETED_DIR.format(dir_name[0]))
-
-    # Loop over directories
+    # Loop over directories to import
 
     for basepath in basepath_list:
 
@@ -391,28 +390,21 @@ def directories_lookup(cnx, basepath_list, target):
 
             basepath = line[0]
 
-            # If the directory has been completed, we skip it. Else, we restart the lookup from the beginning.
-
-            if (basepath not in completed_dir):
-
-                # Restart point here. We delete what has been done for this directory (for it has not been completed)
-                cnx.execute("DELETE FROM filelist WHERE filepath=?", (basepath,))
-                cnx.commit()
-
-                logging.info(FMT_STR_CONSIDERING_DIR.format(basepath))
-                t, nb_files, nb_pics, nb_raw_videos = directory_lookup(cnx, basepath, target)
-                
-                t_elaps += t
-                nb_all_files += nb_files
-                nb_all_pics += nb_pics
-                nb_all_files += nb_raw_videos
+            logging.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
+            t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target)
+            
+            t_elaps += t
+            nb_all_files += nb_files
+            nb_all_pics += nb_pics
+            nb_all_files += nb_raw_videos
+            nb_files_copied += nb_copy_directory
 
     # Returning nb of files to process in the table. Should be the same as nb...
 
     r = cnx.execute("SELECT COUNT(*) FROM filelist")
     nb_to_process = r.fetchone()[0]
 
-    return t_elaps, nb_all_files, nb_all_pics, nb_all_raw_videos
+    return t_elaps, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied
 
 
 #
@@ -447,17 +439,24 @@ def directory_lookup(cnx, basepath, target):
     nb_files = 0
     nb_pics = 0
     nb_raw_videos = 0
+    nb_files_copied = 0
 
-    # Filepath init
+    # Destination of source folder ?
 
     if (basepath == ""):
-        basepath = "."
+        # Destination folder
+        destination = True
+        path_to_walk = target
+    else:
+        # Source folder(s)
+        destination = False
+        path_to_walk = basepath
 
     #
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
     #
 
-    for dir_path, _, files in os.walk(basepath, topdown=True):
+    for dir_path, _, files in os.walk(path_to_walk, topdown=True):
 
         #
         #  We just look for files, we don't process the directories
@@ -579,44 +578,55 @@ def directory_lookup(cnx, basepath, target):
 
                         # Only if not existing!
 
-                        cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
+                        if destination:
+
+                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash, protected)\
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
+                                    (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
+                                    formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash, True))
+
+                        else:
+
+                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
                                     (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
                                     formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash))
 
-                        # Copying file only if not existing in the DB
 
-                        if (copy):
+                            # Copying file only if not existing in the DB
 
-                            # Destination folder (based on date)
-                            
-                            yr = folder_date[0:4]
-                            dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
+                            if (copy):
 
-                            yr_path = target + os.sep + yr
-                            pic_path = yr_path + os.sep + dest_dt + os.sep
-                        
-                            output_extracted_date = extracted_date if extracted_date is not None else ""
-                            output_exif_date = exif_date if exif_date is not None else ""
-                            logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
-
-                            # Copying
-                            
-                            if not(os.path.exists(yr_path)):
-                                str_log = f"Folder {yr_path} unkown, creating..."
-                                logging.info(str_log)
-                                os.makedirs(yr_path)
+                                # Destination folder (based on date)
                                 
-                            if not(os.path.exists(pic_path)):
-                                str_log = f"Folder {pic_path} unkown, creating..."
-                                logging.info(str_log)
-                                os.makedirs(pic_path)
+                                yr = folder_date[0:4]
+                                dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
+
+                                yr_path = target + os.sep + yr
+                                pic_path = yr_path + os.sep + dest_dt + os.sep
                             
-                            if not(os.path.exists(pic_path + file_name)):
-                                str_log = f"Copying {file_path} --> {pic_path + file_name}"
-                                logging.info(str_log)
-                                print("{} --> {}".format(file_path, pic_path + file_name))
-                                shutil.copy2(file_path, pic_path + file_name)
+                                output_extracted_date = extracted_date if extracted_date is not None else ""
+                                output_exif_date = exif_date if exif_date is not None else ""
+                                logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
+
+                                # Copying
+                                
+                                if not(os.path.exists(yr_path)):
+                                    str_log = f"Folder {yr_path} unkown, creating..."
+                                    logging.info(str_log)
+                                    os.makedirs(yr_path)
+                                    
+                                if not(os.path.exists(pic_path)):
+                                    str_log = f"Folder {pic_path} unkown, creating..."
+                                    logging.info(str_log)
+                                    os.makedirs(pic_path)
+                                
+                                if not(os.path.exists(pic_path + file_name)):
+                                    str_log = f"Copying {file_path} --> {pic_path + file_name}"
+                                    nb_files_copied = nb_files_copied + 1
+                                    logging.info(str_log)
+                                    print("{} --> {}".format(file_path, pic_path + file_name))
+                                    shutil.copy2(file_path, pic_path + file_name)
                 
             except Exception as e:
 
@@ -652,7 +662,7 @@ def directory_lookup(cnx, basepath, target):
     # End time
     chrono.stop()
 
-    return chrono.elapsed(), nb_files, nb_pics, nb_raw_videos
+    return chrono.elapsed(), nb_files, nb_pics, nb_raw_videos, nb_files_copied
 
 
 #
@@ -673,11 +683,16 @@ def extract_date_from_filename(filename):
         # Extract the matched date from the captured groups
         extracted_date = match.group(0).replace('_','-') # To prevent parsing errors
         
-        # Parse the extracted date using dateutil.parser
-        parsed_date = parser.parse(extracted_date)
-        
-        # Reformat the parsed date to "yyyy-mm-dd" format
-        reformatted_date = parsed_date.strftime('%Y-%m-%d')
+        try:
+            # Parse the extracted date using dateutil.parser
+            parsed_date = parser.parse(extracted_date)
+            
+            # Reformat the parsed date to "yyyy-mm-dd" format
+            reformatted_date = parsed_date.strftime('%Y-%m-%d')
+
+        except Exception as e:
+
+            reformatted_date = None            
         
         return reformatted_date
     else:
@@ -726,11 +741,15 @@ def main():
     # Looking for files
     # ---
 
-    t, nb_files, nb_pics, nb_raw_videos = directories_lookup(cnx, basepath, target)
-    print("Files lookup duration: {:.2f} sec for {} files.".format(t, nb_files))
-    print("Nb. of files:", nb_files)
-    print("Nb. of PIC files:", nb_pics)
-    print("Nb. of RAW/Video files:", nb_raw_videos)
+    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target)
+    print("Files lookup duration: {:.2f} sec.".format(t))
+    print("Nb. of destination files:", nb_dest_files)
+    print("Nb. of destination PIC files:", nb_dest_pics)
+    print("Nb. of destination RAW/Video files:", nb_dest_raw_videos)
+    print("Nb. of files:", nb_all_files)
+    print("Nb. of PIC files:", nb_all_pics)
+    print("Nb. of RAW/Video files:", nb_all_raw_videos)
+    print("Nb. of files copied:", nb_files_copied)
 
     # Calculate size of all files
     # ---
