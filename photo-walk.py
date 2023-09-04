@@ -229,7 +229,8 @@ def db_create(db):
                     filename TINYTEXT, \
                     extension CHAR(30), \
                     mime_type CHAR(30), \
-                    filepath VARCHAR(4096), \
+                    original_path VARCHAR(4096), \
+                    dest_path VARCHAR(4096), \
                     creation_date TEXT, \
                     modify_date TEXT, \
                     filename_date TEXT, \
@@ -246,7 +247,7 @@ def db_create(db):
 
     # ---> Some useful indexes to speed up the processing
 
-    cnx.execute("CREATE INDEX index_filepath ON filelist (filepath, filename)")
+    cnx.execute("CREATE INDEX index_original_path ON filelist (original_path, filename)")
     cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
     cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
     logging.info("Indexes successfully created")
@@ -580,14 +581,14 @@ def directory_lookup(cnx, basepath, target):
 
                         if destination:
 
-                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash, protected)\
+                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, dest_path, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash, protected)\
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
                                     (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
                                     formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash, True))
 
                         else:
 
-                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, filepath, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
+                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, original_path, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
                                     (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
                                     formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash))

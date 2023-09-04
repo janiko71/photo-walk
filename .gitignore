@@ -55,7 +55,7 @@ copies/
 dest/
 *.db
 *.db-journal
-*.txt
+*.ini
 
 # Translations
 *.mo
