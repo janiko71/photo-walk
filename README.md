@@ -4,7 +4,7 @@ Based on https://github.com/janiko71/sd-transfert and https://github.com/janiko7
 
 ## Actions (argument)
 
-- 'new' : Delete DB and then read. All other options update the DB without erasing it. 
+- 'reset' : Delete DB and then read. All other options update the DB without erasing it. 
 - 'read' : Only read the destination folder and the source folders 
 - 'copy' : Copy the files in a false destination folder, do not mark files as imported (to test the copy or whatever)
 - 'import' : Imports the files, marks them as imported, updates dest path

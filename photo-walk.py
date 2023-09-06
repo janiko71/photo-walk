@@ -84,7 +84,25 @@ log_level = log_level_mapping.get(log_level_text, logging.INFO) # Default: INFO
 
 # create logger
 
-logging.basicConfig(filename=config['log']['file'], level=log_level)
+###logging.basicConfig(filename=config['log']['file'], level=log_level)
+
+# --- logging variables
+
+log_filepath    = "./log/"
+os.makedirs(log_filepath, exist_ok=True)
+
+logger          = logging.getLogger("photo-walk")
+hdlr            = logging.FileHandler(log_filepath+config['log']['file'])
+formatter       = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
+
+# --- Log handler
+
+hdlr.setFormatter(formatter)
+logger.addHandler(hdlr) 
+logger.setLevel(logging.WARNING)
+
+
 
 #
 # ---> Some inits
@@ -240,8 +258,8 @@ def db_create(db):
                     exif_hash CHAR(256), \
                     size BIGINT, \
                     protected BOOL, \
-                    marked_as_imported BOOL, \
-                    marked_to_delete BOOL) \
+                    imported BOOL, \
+                    to_delete BOOL) \
                 ")
     logging.info("Filetable successfully created")
 
@@ -299,7 +317,7 @@ def get_status(cnx):
     # ---> Get last step
     #
 
-    if (res != None):
+    if (res is not None):
         if (res[0] == ''):
             res= None
         else:
@@ -716,6 +734,11 @@ def main():
 
     init()
 
+    # Checking arguments if any
+    
+    print("="*72)
+    utils.check_arguments(sys.argv[1:])
+
     #
     # ---> Read the directory files list
     #
@@ -744,13 +767,17 @@ def main():
 
     t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target)
     print("Files lookup duration: {:.2f} sec.".format(t))
+    print("-"*72)
     print("Nb. of destination files:", nb_dest_files)
     print("Nb. of destination PIC files:", nb_dest_pics)
     print("Nb. of destination RAW/Video files:", nb_dest_raw_videos)
+    print("-"*72)
     print("Nb. of files:", nb_all_files)
     print("Nb. of PIC files:", nb_all_pics)
     print("Nb. of RAW/Video files:", nb_all_raw_videos)
+    print("="*72)
     print("Nb. of files copied:", nb_files_copied)
+    print("-"*72)
 
     # Calculate size of all files
     # ---
@@ -761,6 +788,7 @@ def main():
         size = 0
 
     print("Size of all files: {}".format(utils.humanbytes(size)))
+    print("="*72)
 
     # Closing database
     # ---

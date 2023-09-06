@@ -1,8 +1,12 @@
+import argparse
 import time
 
 #
 #  Global constants (default)
 #
+
+SUPPORTED_COMMANDS = ["reset", "read", "copy", "import"]
+
 
 
 #    -------------------------------
@@ -113,7 +117,36 @@ class Chrono:
 #
 #    -------------------------------
 
-def check_arguments(args):
+def check_arguments(arguments):
+
+    """
+        Check if the arguments (in command line) are known. If not, we raise an exception.
+
+        :param arguments: list of arguments
+        :type arguments: list
+
+        :return: profile to use (can be None or 'default')
+        :rtype: string
+    """   
+
+    parser = argparse.ArgumentParser(description='Photowalk can use arguments. More information at ...')
+
+    help_str = ""
+    for arg_elem in SUPPORTED_COMMANDS:
+        help_str = help_str + arg_elem + ", "
+    help_str = help_str[:-2]
+
+    #
+    # Declaring allowed parameters
+    #
+
+    parser.add_argument('command', type=str, help="Must be one or many within this list: " + help_str)
+    
+    args = parser.parse_args()
+
+    if args.command not in SUPPORTED_COMMANDS:
+        print("Command must be one or many within this list: " + help_str)
+        exit(0)
 
     return args
 
