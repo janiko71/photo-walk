@@ -5,6 +5,9 @@
 # (2) Walk through source directory and copy if needed the files to the destination
 # ---------------------------------------------------------------------------------------------------------------------------
 #
+# Reset = Clear DB + read the files
+# Copy = Copying files without marking them as imported
+#
 
 import mimetypes
 import utils
@@ -82,10 +85,6 @@ log_level_mapping = {
 log_level_text = config['log']['level']
 log_level = log_level_mapping.get(log_level_text, logging.INFO) # Default: INFO
 
-# create logger
-
-###logging.basicConfig(filename=config['log']['file'], level=log_level)
-
 # --- logging variables
 
 log_filepath    = "./log/"
@@ -109,7 +108,6 @@ logger.setLevel(logging.WARNING)
 #
 
 db      = config['db']['name']
-restart = config['restart']['restart']
 
 global last_path
 global last_file
@@ -372,12 +370,14 @@ def checkpoint_db(cnx, last_path, last_file = None, commit = False):
 #    ====================================================================
 #
 
-def directories_lookup(cnx, basepath_list, target):
+def directories_lookup(cnx, basepath_list, target, cmd):
 
     """
         Args:
             cnx (sqlite3.Connection): Connection object
             basepath (text): Array of file paths we will look into.
+            target: Target directory (where to copy files)
+            cmd: Arguments line command
 
         Returns:
             t (time): The execution time of this function
@@ -397,7 +397,7 @@ def directories_lookup(cnx, basepath_list, target):
     # First of all, we look into the dest folder to see what is present. No basepath, only target folder
 
     logging.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
-    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target)
+    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target, cmd)
 
     # Loop over directories to import
 
@@ -410,7 +410,7 @@ def directories_lookup(cnx, basepath_list, target):
             basepath = line[0]
 
             logging.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
-            t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target)
+            t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target, cmd)
             
             t_elaps += t
             nb_all_files += nb_files
@@ -432,7 +432,7 @@ def directories_lookup(cnx, basepath_list, target):
 #    ====================================================================
 #
 
-def directory_lookup(cnx, basepath, target):
+def directory_lookup(cnx, basepath, target, cmd):
 
     """
 
@@ -442,6 +442,8 @@ def directory_lookup(cnx, basepath, target):
         Args:
             cnx (sqlite3.Connection): Connection object
             basepath (text): Array of file paths we will look into.
+            target: Target directory
+            cmd: Command (arg line)
 
         Returns:
             t (time): The execution time of this function
@@ -459,8 +461,9 @@ def directory_lookup(cnx, basepath, target):
     nb_pics = 0
     nb_raw_videos = 0
     nb_files_copied = 0
+    copy_files = False
 
-    # Destination of source folder ?
+    # Destination of source folder?
 
     if (basepath == ""):
         # Destination folder
@@ -470,6 +473,12 @@ def directory_lookup(cnx, basepath, target):
         # Source folder(s)
         destination = False
         path_to_walk = basepath
+
+    # Copy or not copy?
+
+    if (cmd in ["copy", "import"]):
+        copy_files = True
+
 
     #
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
@@ -612,9 +621,13 @@ def directory_lookup(cnx, basepath, target):
                                     formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash))
 
 
-                            # Copying file only if not existing in the DB
+                            # Copying file only if not already imported
 
-                            if (copy):
+                    res = cnx.execute("SELECT fid, protected, imported FROM filelist WHERE file_hash=?", (file_hash,)).fetchone()
+
+                    if res: 
+                            
+                            if (copy and copy_files and res[2] is None):
 
                                 # Destination folder (based on date)
                                 
@@ -646,6 +659,11 @@ def directory_lookup(cnx, basepath, target):
                                     logging.info(str_log)
                                     print("{} --> {}".format(file_path, pic_path + file_name))
                                     shutil.copy2(file_path, pic_path + file_name)
+
+                                # If import => Mark as imported
+
+                                if (cmd == 'import'):
+                                    cnx.execute("UPDATE filelist SET imported = ? WHERE file_hash = (?)", (1, file_hash))
                 
             except Exception as e:
 
@@ -737,7 +755,8 @@ def main():
     # Checking arguments if any
     
     print("="*72)
-    utils.check_arguments(sys.argv[1:])
+    cmd = utils.check_arguments()
+    logging.info("Command: {}".format(cmd))
 
     #
     # ---> Read the directory files list
@@ -754,7 +773,7 @@ def main():
     # ---> DB connection
     #
 
-    cnx = db_connect(db, restart)
+    cnx = db_connect(db, cmd == 'reset')
 
     #
     # ---> Catch the exit signal to commit the database with last checkpoint
@@ -765,7 +784,7 @@ def main():
     # Looking for files
     # ---
 
-    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target)
+    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target, cmd)
     print("Files lookup duration: {:.2f} sec.".format(t))
     print("-"*72)
     print("Nb. of destination files:", nb_dest_files)

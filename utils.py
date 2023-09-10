@@ -117,7 +117,7 @@ class Chrono:
 #
 #    -------------------------------
 
-def check_arguments(arguments):
+def check_arguments():
 
     """
         Check if the arguments (in command line) are known. If not, we raise an exception.
@@ -148,7 +148,15 @@ def check_arguments(arguments):
         print("Command must be one or many within this list: " + help_str)
         exit(0)
 
-    return args
+    if args.command == "reset":
+        valid = input("Are you sure [y/N]: ")
+        if valid.lower() in ['y', 'o']:
+            print("Reset")
+        else:
+            print("Stopping")
+            exit(0)
+
+    return args.command
 
 
 
