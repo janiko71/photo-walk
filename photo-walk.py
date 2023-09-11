@@ -519,7 +519,7 @@ def directory_lookup(cnx, basepath, target, cmd):
                 exif_date = None
                 exif_hash = None
                 
-                if (file_extension in PICT_EXT_LIST):
+                if (file_extension.lower() in PICT_EXT_LIST):
 
                     # exif-like file
 
@@ -574,7 +574,7 @@ def directory_lookup(cnx, basepath, target, cmd):
                         folder_date = formatted_creation_date_short
 
 
-                elif ((file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
+                elif ((file_extension.lower() in RAW_PICT_EXT_LIST) or (file_extension.lower() in VIDEO_EXT_LIST)):
                     
                     # video or raw file
 
@@ -586,7 +586,7 @@ def directory_lookup(cnx, basepath, target, cmd):
                     else:
                         folder_date = formatted_creation_date_short
 
-                if ((file_extension in PICT_EXT_LIST) or (file_extension in RAW_PICT_EXT_LIST) or (file_extension in VIDEO_EXT_LIST)):
+                if ((file_extension.lower() in PICT_EXT_LIST) or (file_extension.lower() in RAW_PICT_EXT_LIST) or (file_extension.lower() in VIDEO_EXT_LIST)):
 
                     # File is PIC or RAW or VIDEO ==> added in DB
 
