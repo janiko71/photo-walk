@@ -385,7 +385,8 @@ def directories_lookup(cnx, basepath_list, target, cmd):
 
     """
                 
-    t_elaps = 0.0
+    t_lookup = 0.0
+    t_copy = 0.0
     nb_dest_files = 0
     nb_dest_pics = 0
     nb_dest_raw_videos = 0
@@ -397,7 +398,7 @@ def directories_lookup(cnx, basepath_list, target, cmd):
     # First of all, we look into the dest folder to see what is present. No basepath, only target folder
 
     logging.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
-    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target, cmd)
+    t_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target, cmd)
 
     # Loop over directories to import
 
@@ -412,7 +413,7 @@ def directories_lookup(cnx, basepath_list, target, cmd):
             logging.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
             t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target, cmd)
             
-            t_elaps += t
+            t_copy += t
             nb_all_files += nb_files
             nb_all_pics += nb_pics
             nb_all_files += nb_raw_videos
@@ -423,7 +424,7 @@ def directories_lookup(cnx, basepath_list, target, cmd):
     r = cnx.execute("SELECT COUNT(*) FROM filelist")
     nb_to_process = r.fetchone()[0]
 
-    return t_elaps, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied
+    return t_lookup, t_copy, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied
 
 
 #
@@ -784,12 +785,14 @@ def main():
     # Looking for files
     # ---
 
-    t, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target, cmd)
-    print("Files lookup duration: {:.2f} sec.".format(t))
+    t_lookup, t_copy, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target, cmd)
+    print("Files lookup duration: {:.2f} sec.".format(t_lookup))
     print("-"*72)
     print("Nb. of destination files:", nb_dest_files)
     print("Nb. of destination PIC files:", nb_dest_pics)
     print("Nb. of destination RAW/Video files:", nb_dest_raw_videos)
+    print("="*72)
+    print("Copy duration: {:.2f} sec.".format(t_copy))
     print("-"*72)
     print("Nb. of files:", nb_all_files)
     print("Nb. of PIC files:", nb_all_pics)
