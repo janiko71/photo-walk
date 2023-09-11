@@ -93,13 +93,12 @@ os.makedirs(log_filepath, exist_ok=True)
 logger          = logging.getLogger("photo-walk")
 hdlr            = logging.FileHandler(log_filepath+config['log']['file'])
 formatter       = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-
+hdlr.setFormatter(formatter)
 
 # --- Log handler
 
-hdlr.setFormatter(formatter)
 logger.addHandler(hdlr) 
-logger.setLevel(logging.WARNING)
+logger.setLevel(log_level)
 
 
 
@@ -216,7 +215,7 @@ def db_create(db):
 
     cnx = sqlite3.connect(db)
     #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
-    logging.info("Creating tables on database %s", db)
+    logger.info("Creating tables on database %s", db)
 
     #
     # ---> Dropping old tables
@@ -259,14 +258,14 @@ def db_create(db):
                     imported BOOL, \
                     to_delete BOOL) \
                 ")
-    logging.info("Filetable successfully created")
+    logger.info("Filetable successfully created")
 
     # ---> Some useful indexes to speed up the processing
 
     cnx.execute("CREATE INDEX index_original_path ON filelist (original_path, filename)")
     cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
     cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
-    logging.info("Indexes successfully created")
+    logger.info("Indexes successfully created")
 
     #
     # ---> Params table used to store infomation about the process and restart steps.
@@ -282,7 +281,7 @@ def db_create(db):
     cnx.execute("INSERT INTO params VALUES ('last_path','')")
     cnx.execute("INSERT INTO params VALUES ('last_file','')")
 
-    logging.info("Params table successfully created")
+    logger.info("Params table successfully created")
 
     cnx.commit()
 
@@ -397,7 +396,7 @@ def directories_lookup(cnx, basepath_list, target, cmd):
 
     # First of all, we look into the dest folder to see what is present. No basepath, only target folder
 
-    logging.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
+    logger.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
     t_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target, cmd)
 
     # Loop over directories to import
@@ -410,7 +409,7 @@ def directories_lookup(cnx, basepath_list, target, cmd):
 
             basepath = line[0]
 
-            logging.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
+            logger.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
             t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target, cmd)
             
             t_copy += t
@@ -562,7 +561,7 @@ def directory_lookup(cnx, basepath, target, cmd):
                         exif_info = ""
                         for tag, value in tags.items():
                             exif_info += f"{tag}:{value}\n"
-                        logging.debug(exif_info)
+                        logger.debug(exif_info)
                         # Get EXIF hash
                         sha256_hasher = hashlib.sha256()
                         sha256_hasher.update(exif_info.encode('utf-8'))
@@ -640,24 +639,24 @@ def directory_lookup(cnx, basepath, target, cmd):
                             
                                 output_extracted_date = extracted_date if extracted_date is not None else ""
                                 output_exif_date = exif_date if exif_date is not None else ""
-                                logging.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
+                                logger.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
 
                                 # Copying
                                 
                                 if not(os.path.exists(yr_path)):
                                     str_log = f"Folder {yr_path} unkown, creating..."
-                                    logging.info(str_log)
+                                    logger.info(str_log)
                                     os.makedirs(yr_path)
                                     
                                 if not(os.path.exists(pic_path)):
                                     str_log = f"Folder {pic_path} unkown, creating..."
-                                    logging.info(str_log)
+                                    logger.info(str_log)
                                     os.makedirs(pic_path)
                                 
                                 if not(os.path.exists(pic_path + file_name)):
                                     str_log = f"Copying {file_path} --> {pic_path + file_name}"
                                     nb_files_copied = nb_files_copied + 1
-                                    logging.info(str_log)
+                                    logger.info(str_log)
                                     print("{} --> {}".format(file_path, pic_path + file_name))
                                     shutil.copy2(file_path, pic_path + file_name)
 
@@ -669,7 +668,7 @@ def directory_lookup(cnx, basepath, target, cmd):
             except Exception as e:
 
                 str_log = f"Error {str(e)} on {file_path}"
-                logging.error(str_log)
+                logger.error(str_log)
 
             # Displaying progression and commit (occasionnaly)
 
@@ -757,7 +756,7 @@ def main():
     
     print("="*72)
     cmd = utils.check_arguments()
-    logging.info("Command: {}".format(cmd))
+    logger.info("Command: {}".format(cmd))
 
     #
     # ---> Read the directory files list
@@ -765,8 +764,8 @@ def main():
 
     basepath = config['directories']['sources'].split(',')
 
-    logging.debug(basepath)
-    logging.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
+    logger.debug(basepath)
+    logger.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
     target = config['directories']['destination']
 
