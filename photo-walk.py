@@ -785,6 +785,8 @@ def main():
     # ---
 
     t_lookup, t_copy, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied = directories_lookup(cnx, basepath, target, cmd)
+    print()
+    print("-"*72)
     print("Files lookup duration: {:.2f} sec.".format(t_lookup))
     print("-"*72)
     print("Nb. of destination files:", nb_dest_files)
