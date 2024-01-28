@@ -3,6 +3,12 @@
 # Log into a DB all imported files
 # =================================
 #
+# ---------------------------------------------------------------------------------------------------------------------------
+# (1) Fill table with target folder informations.
+# ---------------------------------------------------------------------------------------------------------------------------
+# (2) Walk through source directory and copy if needed the files to the destination folder
+# ---------------------------------------------------------------------------------------------------------------------------
+#
 #
 
 import mimetypes
@@ -124,15 +130,18 @@ def exit_handler(signum, frame):
 #     Database connexion
 #    ====================================================================
 #
-def db_connect(db):
+def db_connect(db, restart = False):
 
     """
 
         Connects to the file which will be used for the sqlite3 database. If needed (= if you start a new search or if you've asked for a restart manually),
         a new database will be created, else you just get the pointer to the file.
 
+        If the database exists, we look into to get the state of the last call of the script, to manage the restart option, else we create a new database.
+
         Args:
             db (text): Name of the file used for storing sqlite3 database
+            restart (boolean): (Optional) Indicates if your restart the process from the beginning or not
         
         Returns:
             cnx (sqlite3.Connection): Connection object (bound to the file _filename_)
@@ -145,13 +154,42 @@ def db_connect(db):
     # ---> Did we ask for a restart or not?
     #
 
-    try:
+    if not restart:
 
-        res = cnx.execute("SELECT (1) FROM filelist").fetchone()
+        # We didn't, so we continue the process. Does the table 'params' exist?
 
-    except sqlite3.OperationalError as e:
+        res = cnx.execute("SELECT count(*) FROM sqlite_master WHERE type ='table' AND name ='params';").fetchone()
 
-        # No, there's no existing database, so we create one
+        if (res[0] == 1):
+
+            # Yes, so we look for the status. If the status is empty, no step has been executed
+            # so we have to recreate the database to start on clean basis.
+
+            step = get_status(cnx)
+
+            if (step == None):
+
+                # No step in the database => Let's recreate the DB
+                cnx.close()        
+                cnx = db_create(db)
+
+            else:
+
+                # The script is in progress
+                pass
+
+        else:
+
+            # No, there's no existing database, so we create one
+
+            cnx = db_create(db)
+
+    else:
+
+        #
+        #  'restart' is passed in args. So we drop & recreate the database
+        #
+
         cnx = db_create(db)
 
     return cnx
@@ -180,6 +218,24 @@ def db_create(db):
     cnx = sqlite3.connect(db)
     #cnx = sqlite3.connect(':memory:') ==> in-memory for sqlite3 is not really faster 
     logger.info("Creating tables on database %s", db)
+
+    #
+    # ---> Dropping old tables
+    #
+
+    try:
+
+        # Drop all tables
+
+        cnx.execute("DROP TABLE filelist")
+        cnx.execute("DROP TABLE params")
+        print("Old tables deleted.")
+
+    except sqlite3.OperationalError:
+
+        # Exception means no old database
+
+        print("No old database.")
 
     #
     # ---> Let's create the table used for storing files information
@@ -213,10 +269,100 @@ def db_create(db):
     cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
     logger.info("Indexes successfully created")
 
+    #
+    # ---> Params table used to store infomation about the process and restart steps.
+    #
+    
+    cnx.execute("CREATE TABLE params(\
+                    key TINYTEXT,\
+                    value TEXT)\
+                ")
+
+    # --- > Default values
+
+    cnx.execute("INSERT INTO params VALUES ('last_path','')")
+    cnx.execute("INSERT INTO params VALUES ('last_file','')")
+
+    logger.info("Params table successfully created")
+
     cnx.commit()
 
     return cnx
 
+
+#
+#    ====================================================================
+#     Get state of last call in the params table
+#    ====================================================================
+#
+
+def get_status(cnx):
+
+    """
+
+        Gets the status of the last process, if it has beend stored, to handle a restart if needed.
+
+        Args:
+            cnx (sqlite3.Connection): Connection object
+
+        Returns:
+            value (text): Name of the last executed process
+
+    """
+
+    res = cnx.execute("SELECT value FROM params WHERE key='last_step'").fetchone()
+
+    #
+    # ---> Get last step
+    #
+
+    if (res is not None):
+        if (res[0] == ''):
+            res= None
+        else:
+            res = res[0]
+
+    #
+    # ---> Get last ID (fid or hash)
+    # 
+
+    last_path = cnx.execute("SELECT value FROM params WHERE key='last_path'").fetchone()
+    last_file = cnx.execute("SELECT value FROM params WHERE key='last_file'").fetchone()
+
+    return last_path, last_file
+
+
+#
+#    ====================================================================
+#     Set state of last (=current) step executed in the params table
+#    ====================================================================
+#
+
+def checkpoint_db(cnx, last_path, last_file = None, commit = False):
+
+    """
+
+        Sets the status of the current process by storing the name of the last well-executed step.
+
+        Args:  
+            cnx (sqlite3.Connection): Connection object
+            last_step (text): Name of the last well-executed step
+
+        Returns:
+            nothing
+
+    """
+
+
+    # We update the params table with the last well completed step
+
+    cnx.execute("UPDATE params SET value=? WHERE key='last_path'", (last_path,))
+    cnx.execute("UPDATE params SET value=? WHERE key='last_file'", (last_file,))
+
+    if (commit):
+        cnx.commit()
+
+    return 
 
 
 #
@@ -550,7 +696,7 @@ def directory_lookup(cnx, basepath, target, cmd):
     # ---> Last commit
     #
 
-    cnx.commit()
+    checkpoint_db(cnx, "last_path_example", "last_file_example", commit = True)
 
     # End time
     chrono.stop()
@@ -629,7 +775,7 @@ def main():
     # ---> DB connection
     #
 
-    cnx = db_connect(db)
+    cnx = db_connect(db, cmd == 'reset')
 
     #
     # ---> Catch the exit signal to commit the database with last checkpoint

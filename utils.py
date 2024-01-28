@@ -5,7 +5,7 @@ import time
 #  Global constants (default)
 #
 
-SUPPORTED_COMMANDS = ["reset", "read", "copy", "import"]
+SUPPORTED_COMMANDS = ["read-target", "read", "testcopy", "import"]
 
 
 
@@ -95,7 +95,7 @@ class Chrono:
 
     def __repr__(self):
 
-        # CUstomized representation (for testing purpose)
+        # Customized representation (for testing purpose)
 
         return str(self)
 
