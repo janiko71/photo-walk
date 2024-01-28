@@ -30,6 +30,8 @@ import exifread
 from colorama import Fore, Back, Style 
 from colorama import init
 
+from res.my_file_info import MyFileInfo
+
 #
 #  Some constants
 #
@@ -200,9 +202,7 @@ def db_create(db):
                     exif_content TEXT, \
                     exif_hash CHAR(256), \
                     size BIGINT, \
-                    protected BOOL, \
-                    imported BOOL, \
-                    to_delete BOOL) \
+                    trt_date TEXT) \
                 ")
     logger.info("Filetable successfully created")
 
@@ -218,345 +218,97 @@ def db_create(db):
     return cnx
 
 
-
 #
 #    ====================================================================
-#     Directory calculation (for all files in many directories)
+#     Get file information
 #    ====================================================================
 #
 
-def directories_lookup(cnx, basepath_list, target, cmd):
+def get_file_info(dir_path, file_name):
 
     """
-        Args:
-            cnx (sqlite3.Connection): Connection object
-            basepath (text): Array of file paths we will look into.
-            target: Target directory (where to copy files)
-            cmd: Arguments line command
-
-        Returns:
-            t (time): The execution time of this function
-            nb_to_process (int): The number of files we have to process   
-
+        Gets information for the file 
     """
-                
-    t_lookup = 0.0
-    t_copy = 0.0
-    nb_dest_files = 0
-    nb_dest_pics = 0
-    nb_dest_raw_videos = 0
-    nb_all_files = 0
-    nb_all_pics = 0
-    nb_all_raw_videos = 0
-    nb_files_copied = 0
 
-    # First of all, we look into the dest folder to see what is present. No basepath, only target folder
+    file_info = MyFileInfo()
 
-    logger.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
-    t_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, _ = directory_lookup(cnx, "", target, cmd)
+    file_info.file_path = os.path.join(dir_path, file_name)
+    file_info.filename = file_name
 
-    # Loop over directories to import
+    # Obtenir l'extension du fichier
+    file_info.file_extension = os.path.splitext(file_name)[1]
 
-    for basepath in basepath_list:
+    # Obtenir le type MIME
+    file_info.mime_type, _ = mimetypes.guess_type(file_name)
 
-        line        = basepath.rstrip("\n").split(";")
+    # PS dates
+    raw_modification_date = datetime.fromtimestamp(os.path.getmtime(file_info.file_path))
+    file_info.modify_date = raw_modification_date.strftime('%Y-%m-%d %H:%M:%S')
+    raw_creation_date = datetime.fromtimestamp(os.path.getctime(file_info.file_path))
+    file_info.creation_date = raw_creation_date.strftime('%Y-%m-%d %H:%M:%S')
+    file_info.creation_date_short = raw_creation_date.strftime('%Y-%m-%d')
+    file_info.extracted_date = extract_date_from_filename(file_info.filename)
 
-        if line[0] != '':
+    if (file_info.file_extension.lower() in PICT_EXT_LIST):
 
-            basepath = line[0]
+        # This is a picture
+                    
+        with open(file_info.file_path, 'rb') as file:
+            tags = exifread.process_file(file, details=False)
 
-            logger.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
-            t, nb_files, nb_pics, nb_raw_videos, nb_copy_directory = directory_lookup(cnx, basepath, target, cmd)
+        if 'EXIF DateTimeOriginal' in tags:
+
+            date_text = tags['EXIF DateTimeOriginal'].printable
+            date_parts = date_text.split(' ')
+            file_info.exif_date = date_parts[0].replace(':', '-') + ' ' + date_parts[1]
+            file_info.folder_date = file_info.exif_date[:10].replace(':','-')
+            #img_exif_str = str(img_exif_data).encode('utf-8')
+            #exif_hash = hashlib.sha256(img_exif_str).hexdigest()
+
+            exif_info = ""
+            for tag, value in tags.items():
+                exif_info += f"{tag}:{value}\n"
+            logger.debug(exif_info)
+            # Get EXIF hash
+            sha256_hasher = hashlib.sha256()
+            sha256_hasher.update(exif_info.encode('utf-8'))
+            file_info.exif_hash = sha256_hasher.hexdigest()
+
+        else:
+
+            file_info.exif_date = ""
+            file_info.exif_hash = ""
+            file_info.folder_date = file_info.creation_date_short
+
+    elif ((file_info.file_extension.lower() in RAW_PICT_EXT_LIST) or (file_info.file_extension.lower() in VIDEO_EXT_LIST)):
+
+        # This is a video
+
+        if file_info.extracted_date:
+            file_info.folder_date = file_info.extracted_date
+        else:
+            file_info.folder_date = file_info.creation_date_short
+
+    # Hash computing for both images and videos
+    # ---
             
-            t_copy += t
-            nb_all_files += nb_files
-            nb_all_pics += nb_pics
-            nb_all_files += nb_raw_videos
-            nb_files_copied += nb_copy_directory
-
-    # Returning nb of files to process in the table. Should be the same as nb...
-
-    r = cnx.execute("SELECT COUNT(*) FROM filelist")
-    nb_to_process = r.fetchone()[0]
-
-    return t_lookup, t_copy, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied
-
-
-#
-#    ====================================================================
-#     Directory calculation (for all files in one directory)
-#    ====================================================================
-#
-
-def directory_lookup(cnx, basepath, target, cmd):
-
-    """
-
-        Looks (hierarchically) for all files within the folder structure, and stores the path and the 
-        name of each file. No file access is made (to save time).
-
-        Args:
-            cnx (sqlite3.Connection): Connection object
-            basepath (text): Array of file paths we will look into.
-            target: Target directory
-            cmd: Command (arg line)
-
-        Returns:
-            t (time): The execution time of this function
-
-    """
-
-    global last_path, last_file
-
-    # Start time
-    chrono = utils.Chrono()
-    chrono.start()
-
-    # Nb of files init
-    nb_files = 0
-    nb_pics = 0
-    nb_raw_videos = 0
-    nb_files_copied = 0
-    copy_files = False
-
-    # Destination of source folder?
-
-    if (basepath == ""):
-        # Destination folder
-        destination = True
-        path_to_walk = target
-    else:
-        # Source folder(s)
-        destination = False
-        path_to_walk = basepath
-
-    # Copy or not copy?
-
-    if (cmd in ["copy", "import"]):
-        copy_files = True
-
-
-    #
-    # ---> Files discovering. Thanks to Python, we just need to call an existing function...
-    #
-
-    for dir_path, _, files in os.walk(path_to_walk, topdown=True):
-
-        #
-        #  We just look for files, we don't process the directories
-        #
-
-        for file_name in files:
-
-            # Hey, we got one (file)!
-
-            file_path = os.path.join(dir_path, file_name)
-
-            # Obtenir l'extension du fichier
-            file_extension = os.path.splitext(file_name)[1]
-
-            # Obtenir le type MIME
-            file_mime_type, _ = mimetypes.guess_type(file_name)
-
-            # PS dates
-            modification_date = datetime.fromtimestamp(os.path.getmtime(file_path))
-            formatted_modification_date = modification_date.strftime('%Y-%m-%d %H:%M:%S')
-            creation_date = datetime.fromtimestamp(os.path.getctime(file_path))
-            formatted_creation_date = creation_date.strftime('%Y-%m-%d %H:%M:%S')
-            formatted_creation_date_short = creation_date.strftime('%Y-%m-%d')
-            extracted_date = extract_date_from_filename(file_name)
-
-            nb_files = nb_files + 1
-
-            try:
-
-                copy = False
-                folder_date = None
-                exif_date = None
-                exif_hash = None
-                
-                if (file_extension.lower() in PICT_EXT_LIST):
-
-                    # exif-like file
-
-                    nb_pics = nb_pics + 1
-
-                    copy = True
-                    
-                    """
-                    img = PILimage.open(file_path)
-                    img_exif_data = img._getexif()
-
-                    if img_exif_data:
-
-                        # Exif present
-
-                        exif_date = img_exif_data.get(36867)
-                        folder_date = exif_date[:10].replace(':','-')
-                        img_exif_str = str(img_exif_data).encode('utf-8')
-                        exif_hash = hashlib.sha256(img_exif_str).hexdigest()
-
-                    else:
-
-                        # No EXIF data
-                        pass
-                    """
-
-                    with open(file_path, 'rb') as file:
-                        tags = exifread.process_file(file, details=False)
-
-                    if 'EXIF DateTimeOriginal' in tags:
-
-                        date_text = tags['EXIF DateTimeOriginal'].printable
-                        date_parts = date_text.split(' ')
-                        exif_date = date_parts[0].replace(':', '-') + ' ' + date_parts[1]
-                        folder_date = exif_date[:10].replace(':','-')
-                        #img_exif_str = str(img_exif_data).encode('utf-8')
-                        #exif_hash = hashlib.sha256(img_exif_str).hexdigest()
-
-                        exif_info = ""
-                        for tag, value in tags.items():
-                            exif_info += f"{tag}:{value}\n"
-                        logger.debug(exif_info)
-                        # Get EXIF hash
-                        sha256_hasher = hashlib.sha256()
-                        sha256_hasher.update(exif_info.encode('utf-8'))
-                        exif_hash = sha256_hasher.hexdigest()
-
-                    else:
-
-                        exif_date = ""
-                        exif_hash = ""
-                        folder_date = formatted_creation_date_short
-
-
-                elif ((file_extension.lower() in RAW_PICT_EXT_LIST) or (file_extension.lower() in VIDEO_EXT_LIST)):
-                    
-                    # video or raw file
-
-                    nb_raw_videos = nb_raw_videos + 1
-
-                    copy = True
-                    if extracted_date:
-                        folder_date = formatted_creation_date_short
-                    else:
-                        folder_date = formatted_creation_date_short
-
-                if ((file_extension.lower() in PICT_EXT_LIST) or (file_extension.lower() in RAW_PICT_EXT_LIST) or (file_extension.lower() in VIDEO_EXT_LIST)):
-
-                    # File is PIC or RAW or VIDEO ==> added in DB
-
-                    # Open the file and read it in binary mode
-                    sha256_hasher = hashlib.sha256()
-                    with open(file_path, 'rb') as file:
-                        # Read the file in small chunks to efficiently handle large files
-                        for chunk in iter(lambda: file.read(4096), b''):
-                            sha256_hasher.update(chunk)
-
-                    # Get the hexadecimal representation of the hash
-                    file_hash = sha256_hasher.hexdigest()
-
-                    res = cnx.execute("SELECT fid FROM filelist WHERE file_hash=?", (file_hash,)).fetchone()
-
-                    if res is None:
-
-                        # Only if not existing!
-
-                        if destination:
-
-                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, dest_path, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash, protected)\
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
-                                    (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
-                                    formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash, True))
-
-                        else:
-
-                            cnx.execute("INSERT INTO filelist(filename, extension, mime_type, original_path, size, creation_date, modify_date, filename_date, exif_date, exif_hash, file_hash)\
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",\
-                                    (file_name, file_extension, file_mime_type, dir_path, os.path.getsize(file_path), \
-                                    formatted_creation_date, formatted_modification_date, extracted_date, exif_date, exif_hash, file_hash))
-
-
-                            # Copying file only if not already imported
-
-                    res = cnx.execute("SELECT fid, protected, imported FROM filelist WHERE file_hash=?", (file_hash,)).fetchone()
-
-                    if res: 
-                            
-                            if (copy and copy_files and res[2] is None):
-
-                                # Destination folder (based on date)
-                                
-                                yr = folder_date[0:4]
-                                dest_dt = "{:04d}-{:02d}-{:02d}".format(int(yr), int(folder_date[5:7]), int(folder_date[8:10]))
-
-                                yr_path = target + os.sep + yr
-                                pic_path = yr_path + os.sep + dest_dt + os.sep
-                            
-                                output_extracted_date = extracted_date if extracted_date is not None else ""
-                                output_exif_date = exif_date if exif_date is not None else ""
-                                logger.info("(1){:<10} (2){} (3){} (4){} (5){:<30} (6){}".format(output_extracted_date, formatted_creation_date, output_exif_date, folder_date, file_name[:30], exif_hash))
-
-                                # Copying
-                                
-                                if not(os.path.exists(yr_path)):
-                                    str_log = f"Folder {yr_path} unkown, creating..."
-                                    logger.info(str_log)
-                                    os.makedirs(yr_path)
-                                    
-                                if not(os.path.exists(pic_path)):
-                                    str_log = f"Folder {pic_path} unkown, creating..."
-                                    logger.info(str_log)
-                                    os.makedirs(pic_path)
-                                
-                                if not(os.path.exists(pic_path + file_name)):
-                                    str_log = f"Copying {file_path} --> {pic_path + file_name}"
-                                    nb_files_copied = nb_files_copied + 1
-                                    logger.info(str_log)
-                                    print("{} --> {}".format(file_path, pic_path + file_name))
-                                    shutil.copy2(file_path, pic_path + file_name)
-
-                                # If import => Mark as imported
-
-                                if (cmd == 'import'):
-                                    cnx.execute("UPDATE filelist SET imported = ? WHERE file_hash = (?)", (1, file_hash))
-                
-            except Exception as e:
-
-                str_log = f"Error {str(e)} on {file_path}"
-                logger.error(str_log)
-
-            # Displaying progression and commit (occasionnaly)
-
-            if ((nb_files % 100) == 0):
-                last_path = file_path
-                last_file = file_name
-                print("Discovering #{} files ({:.2f} sec)".format(nb_files, chrono.elapsed()), end="\r", flush=True)
-                cnx.commit()
-
-            """
-            except PermissionError:
-
-                cnx.execute("INSERT INTO filelist(pre_hash, path, name, access_denied)\
-                                VALUES (?, ?, ?, ?)",("?", root, name, True))
-
-            except OSError as ose:
-
-                cnx.execute("INSERT INTO filelist(pre_hash, path, name, os_errno, os_strerror)\
-                                VALUES (?, ?, ?, ?, ?)",("?", root, name, ose.errno, ose.strerror))
-            """
-
-    #
-    # ---> Last commit
-    #
-
-    cnx.commit()
-
-    # End time
-    chrono.stop()
-
-    return chrono.elapsed(), nb_files, nb_pics, nb_raw_videos, nb_files_copied
-
+    if ((file_info.file_extension.lower() in PICT_EXT_LIST) or (file_info.file_extension.lower() in RAW_PICT_EXT_LIST) or \
+        (file_info.file_extension.lower() in VIDEO_EXT_LIST)):
+
+        # File is PIC or RAW or VIDEO ==> added in DB
+
+        # Open the file and read it in binary mode
+        sha256_hasher = hashlib.sha256()
+        with open(file_info.file_path, 'rb') as file:
+            # Read the file in small chunks to efficiently handle large files
+            for chunk in iter(lambda: file.read(4096), b''):
+                sha256_hasher.update(chunk)
+
+        # Get the hexadecimal representation of the hash
+        file_info.file_hash = sha256_hasher.hexdigest()
+
+    return file_info
+    
 
 #
 #    ====================================================================
@@ -591,6 +343,102 @@ def extract_date_from_filename(filename):
     else:
         return None
 
+
+
+#
+#    ====================================================================
+#     Directory browsing (for target)
+#    ====================================================================
+#
+
+def read_target(cnx, target):
+
+    logger.info(FMT_STR_CONSIDERING_DIR.format(target) + " as a destination folder")
+
+    #
+    # ---> Files discovering. Thanks to Python, we just need to call an existing function...
+    #
+
+    for dir_path, _, files in os.walk(target, topdown=True):
+
+        for file_name in files:
+                    
+            get_file_info(dir_path, file_name)
+
+    return
+
+
+#
+#    ====================================================================
+#     Directory browsing (for multiple source paths)
+#    ====================================================================
+#
+
+def read_source(cnx, basepath_list):
+
+    # Loop over directories 
+
+    for basepath in basepath_list:
+
+        line        = basepath.rstrip("\n").split(";")
+        
+        if line[0] != '':
+
+            basepath = line[0]
+            logger.info(FMT_STR_CONSIDERING_DIR.format(basepath) + " as a source folder")
+
+            for dir_path, _, files in os.walk(basepath, topdown=True):
+
+                for file_name in files:
+
+                    get_file_info(dir_path, file_name)
+        
+    return
+
+
+#
+#    ====================================================================
+#     Directory calculation (for all files in many directories)
+#    ====================================================================
+#
+
+def directories_lookup(cnx, basepath_list, target, cmd):
+
+    """
+        Args:
+            cnx (sqlite3.Connection): Connection object
+            basepath (text): Array of file paths we will look into.
+            target: Target directory (where to copy files)
+            cmd: Arguments line command -> read-target, read-source, testcopy, import
+
+        Returns:
+            t (time): The execution time of this function
+            nb_to_process (int): The number of files we have to process   
+
+    """
+                
+    t_lookup = 0.0
+    t_copy = 0.0
+    nb_dest_files = 0
+    nb_dest_pics = 0
+    nb_dest_raw_videos = 0
+    nb_all_files = 0
+    nb_all_pics = 0
+    nb_all_raw_videos = 0
+    nb_files_copied = 0
+
+    # Read target to fill the DB with already imported files
+
+    if cmd == "read-target":
+
+        read_target(cnx, target)
+
+    elif cmd == "read-source":
+
+        read_source(cnx, basepath_list)
+
+
+    return t_lookup, t_copy, nb_dest_files, nb_dest_pics, nb_dest_raw_videos, nb_all_files, nb_all_pics, nb_all_raw_videos, nb_files_copied
 
 
 

@@ -9,7 +9,7 @@ For what? To prevent the import of files that you intentionally deleted. Then yo
 ## Actions (argument)
 
 - 'read-target' : Reads all the files in the target (destination) folder(s) and add them into the DB.  
-- 'read' : Only reads the source folders and lists what would be copied
+- 'read-source' : Only reads the source folders and lists what would be copied
 - 'testcopy' : Copies the files in a false target folder, does not add them into the DB
 - 'import' : Imports the files, puts them into the DB
 
