@@ -61,9 +61,10 @@ config.read('photo-walk.ini')
 
 # Some DB variables
 db = config['db']['name']
-global cnx, nb_db_updates
+global cnx, nb_db_updates, nb_db_records
 cnx = None
 nb_db_updates = 0
+nb_db_records = 0
 COMMIT_INTERVAL = 100
 
 
@@ -140,7 +141,7 @@ def db_connect(db):
         
     """
 
-    global cnx
+    global cnx, nb_db_records
     cnx = sqlite3.connect(db)
 
     #
@@ -149,7 +150,8 @@ def db_connect(db):
 
     try:
 
-        res = cnx.execute("SELECT (1) FROM filelist").fetchone()
+        res = cnx.execute("SELECT count(fid) FROM filelist").fetchone()
+        nb_db_records = res[0] 
 
     except sqlite3.OperationalError as e:
 
@@ -493,17 +495,44 @@ def read_source(basepath_list):
 #    ====================================================================
 #
 
-def target_lookup(target, cmd):
+def source_lookup(basepath_list):
 
     """
         Args:
-            basepath (text): Array of file paths we will look into.
-            target: Target directory (where to copy files)
-            cmd: Arguments line command -> read-target, read-source, testcopy, import
+            basepath_list (text): Array of file paths we will look into.
 
         Returns:
             t (time): The execution time of this function
-            nb_to_process (int): The number of files we have to process   
+            nb_* (int): The number of files we have to process   
+
+    """
+
+    # Read target to fill the DB with already imported files
+
+    t0 = time.time()
+
+    nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = read_source(basepath_list)
+
+    t_dest_lookup = time.time() - t0
+
+    return t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
+
+
+#
+#    ====================================================================
+#     Directory calculation (for all files in many directories)
+#    ====================================================================
+#
+
+def target_lookup(target):
+
+    """
+        Args:
+            target: Target directory (where to copy files)
+
+        Returns:
+            t (time): The execution time of this function
+            nb_* (int): The number of files we have to process   
 
     """
 
@@ -570,21 +599,33 @@ def main():
     t_source_lookup = 0.0
     t_copy = 0.0
     nb_dest_files = 0
+    nb_dest_raw = 0
+    nb_dest_videos = 0
     nb_dest_pics = 0
-    nb_all_files = 0
-    nb_all_pics = 0
-    nb_all_raw = 0
-    nb_all_videos = 0
+    nb_source_files = 0
+    nb_source_pics = 0
+    nb_source_raw = 0
+    nb_source_videos = 0
     nb_files_copied = 0
 
     # Looking for files
     # ---
 
-    if cmd == "read-target":
-        t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target, cmd)
+    match cmd:
+        case "read-target":
+            t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target)
+        case "read-source":
+            t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath)
+        case "testcopy":
+            pass
+        case "import":
+            pass
+
     print()
     print("-"*72)
-    print("Files lookup duration: {:.2f} sec.".format(t_dest_lookup))
+    print("Nb. of records in DB, before running:", nb_db_records)
+    print("-"*72)
+    print("Target lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print("-"*72)
     print("Nb. of destination files:", nb_dest_files)
     print("Nb. of destination PIC files:", nb_dest_pics)
@@ -593,10 +634,10 @@ def main():
     print("="*72)
     print("Copy duration: {:.2f} sec.".format(t_copy))
     print("-"*72)
-    print("Nb. of files:", nb_all_files)
-    print("Nb. of PIC files:", nb_all_pics)
-    print("Nb. of RAW files:", nb_all_raw)
-    print("Nb. of Video files:", nb_all_videos)
+    print("Nb. of source files:", nb_source_files)
+    print("Nb. of PIC source files:", nb_source_pics)
+    print("Nb. of RAW source files:", nb_source_raw)
+    print("Nb. of Video source files:", nb_source_videos)
     print("="*72)
     print("Nb. of DB updates:", nb_db_updates)
     print("-"*72)
