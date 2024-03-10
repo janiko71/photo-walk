@@ -21,6 +21,7 @@ class MyFileInfo:
             self.exif_hash = exif_hash
             self.size = size
             self.trt_date = trt_date
+            self.walk_type = "unknown"
 
     def afficher_infos(self):
 
@@ -39,5 +40,6 @@ class MyFileInfo:
         print(f"Exif Hash: {self.exif_hash}")
         print(f"Size: {self.size}")
         print(f"Traitement Date: {self.trt_date}")
+        print(f"Typee: {self.type}")
 
 
