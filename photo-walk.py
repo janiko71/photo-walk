@@ -291,6 +291,7 @@ def get_file_info(dir_path, file_name):
     file_info.creation_date = raw_creation_date.strftime('%Y-%m-%d %H:%M:%S')
     file_info.creation_date_short = raw_creation_date.strftime('%Y-%m-%d')
     file_info.filename_date = extract_date_from_filename(file_info.filename)
+    file_info.trt_date = datetime.now().strftime("%Y%m%d%H%M%S")
 
     if (file_info.file_extension.lower() in PICT_EXT_LIST):
 
@@ -553,6 +554,8 @@ def read_source(basepath_list, cmd):
                             copy_file(file_info.file_path, config["directories"]["destination"], cmd)
                             file_info.original_path = dir_path
                             insert_into_DB(file_info)
+                        elif cmd == "read-source":
+                            logger.info("%s would have been copied", file_info.file_path)
 
                     pass
         
