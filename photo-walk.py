@@ -405,6 +405,58 @@ def extract_date_from_filename(filename):
 
 #
 #    ====================================================================
+#     OS Copy file function
+#    ====================================================================
+#
+def os_file_copy(filepath, dest, cmd):
+
+    # CHeck destination directory
+    destination_file_path = os.path.join(dest, os.path.basename(filepath))
+
+    if os.path.exists(destination_file_path):
+        logger.info("File {destination_file_path} already exists.")
+    else:
+        # Create if not existing
+        if not os.path.exists(dest):
+            os.makedirs(dest, exist_ok=True)
+
+    try:
+        # OS copy
+        shutil.copy(filepath, dest)
+        if cmd == "testcopy":
+            logger.info("%s copied in test mode (in %s)", filepath, dest)
+        elif cmd == "import":
+            logger.info("%s imported in %s", filepath, dest)    
+    except FileNotFoundError:
+        logger.error("%s doesn't exist (source)", filepath)
+    except PermissionError:
+        logger.error("Wrong permissions for copying into {dest}")
+    except Exception as e:
+        logger.error("Unknown errror while copying {filepath} ({e}")
+
+
+
+#
+#    ====================================================================
+#     Copy file function, depending on the line command
+#    ====================================================================
+#
+
+def copy_file(file_path, dest, cmd):
+
+    existing_file = os.path.isfile(file_path)
+
+    if cmd == "testcopy":
+        os_file_copy( file_path, config["directories"]["trash"], cmd)
+    elif cmd == "import":
+        os_file_copy(file_path, config["directories"]["destination"], cmd)
+
+    return
+
+
+
+#
+#    ====================================================================
 #     Directory browsing (for target)
 #    ====================================================================
 #
@@ -452,7 +504,7 @@ def read_target(target):
 #    ====================================================================
 #
 
-def read_source(basepath_list):
+def read_source(basepath_list, cmd):
 
     nb_source_files = 0
     nb_source_pics = 0
@@ -485,6 +537,24 @@ def read_source(basepath_list):
                             nb_source_raw = nb_source_raw + 1
                         case "VIDEO":
                             nb_source_videos = nb_source_videos + 1
+
+                    # Check if the file is already in the DB
+                    cursor = cnx.cursor()
+                    cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
+                    res = cursor.fetchone()
+
+                    if res:
+                        # existing
+                        logger.info("%s existing in DB", file_info.file_path)
+                    else:
+                        if cmd == "testcopy":
+                            copy_file(file_info.file_path, config["directories"]["trash"], cmd)
+                        elif cmd == "import":
+                            copy_file(file_info.file_path, config["directories"]["destination"], cmd)
+                            file_info.original_path = dir_path
+                            insert_into_DB(file_info)
+
+                    pass
         
     return nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
 
@@ -495,7 +565,7 @@ def read_source(basepath_list):
 #    ====================================================================
 #
 
-def source_lookup(basepath_list):
+def source_lookup(basepath_list, cmd):
 
     """
         Args:
@@ -511,7 +581,7 @@ def source_lookup(basepath_list):
 
     t0 = time.time()
 
-    nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = read_source(basepath_list)
+    nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = read_source(basepath_list, cmd)
 
     t_dest_lookup = time.time() - t0
 
@@ -614,12 +684,8 @@ def main():
     match cmd:
         case "read-target":
             t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target)
-        case "read-source":
-            t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath)
-        case "testcopy":
-            pass
-        case "import":
-            pass
+        case "read-source" | "testcopy" | "import":
+            t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath, cmd)
 
     print()
     print("-"*72)

@@ -32,14 +32,16 @@ class MyFileInfo:
         print(f"Original Path: {self.original_path}")
         print(f"Destination Path: {self.dest_path}")
         print(f"Creation Date: {self.creation_date}")
+        print(f"Creation Date (short): {self.creation_date_short}")
         print(f"Modify Date: {self.modify_date}")
         print(f"Filename Date: {self.filename_date}")
+        print(f"Folder Date: {self.folder_date}")
         print(f"File Hash: {self.file_hash}")
         print(f"Exif Date: {self.exif_date}")
         print(f"Exif Content: {self.exif_content}")
         print(f"Exif Hash: {self.exif_hash}")
         print(f"Size: {self.size}")
         print(f"Traitement Date: {self.trt_date}")
-        print(f"Typee: {self.type}")
+        print(f"Type: {self.walk_type}")
 
 
