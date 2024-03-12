@@ -94,15 +94,15 @@ log_filepath    = "./log/"
 os.makedirs(log_filepath, exist_ok=True)
 
 logger          = logging.getLogger("photo-walk")
-hdlr            = logging.FileHandler(log_filepath+log_filename)
+hdlr            = logging.FileHandler(log_filepath+log_filename, encoding='utf-8')
 formatter       = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
 hdlr.setFormatter(formatter)
 
 # --- Log handler
 
 logger.addHandler(hdlr) 
 logger.setLevel(log_level)
-
 
 
 #
@@ -114,7 +114,15 @@ global last_file
 last_path = None
 last_file = None
 
+global nb_files_copied, size_files_copied
 
+
+
+#
+#    ====================================================================
+#     Exit when CTRL-C
+#    ====================================================================
+#
 def exit_handler(signum, frame):
 
     print()
@@ -292,6 +300,7 @@ def get_file_info(dir_path, file_name):
     file_info.creation_date_short = raw_creation_date.strftime('%Y-%m-%d')
     file_info.filename_date = extract_date_from_filename(file_info.filename)
     file_info.trt_date = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_info.size = os.path.getsize(file_info.file_path)
 
     if (file_info.file_extension.lower() in PICT_EXT_LIST):
 
@@ -409,31 +418,41 @@ def extract_date_from_filename(filename):
 #     OS Copy file function
 #    ====================================================================
 #
-def os_file_copy(filepath, dest, cmd):
+def os_file_copy(filepath, dest, cmd, size):
+
+    global nb_files_copied
+    global size_files_copied
 
     # CHeck destination directory
     destination_file_path = os.path.join(dest, os.path.basename(filepath))
 
     if os.path.exists(destination_file_path):
-        logger.info("File {destination_file_path} already exists.")
+
+        logger.info(f"File {destination_file_path} already exists.")
+
     else:
-        # Create if not existing
+        
+        # Create directory if not existing
         if not os.path.exists(dest):
             os.makedirs(dest, exist_ok=True)
 
-    try:
-        # OS copy
-        shutil.copy(filepath, dest)
-        if cmd == "testcopy":
-            logger.info("%s copied in test mode (in %s)", filepath, dest)
-        elif cmd == "import":
-            logger.info("%s imported in %s", filepath, dest)    
-    except FileNotFoundError:
-        logger.error("%s doesn't exist (source)", filepath)
-    except PermissionError:
-        logger.error("Wrong permissions for copying into {dest}")
-    except Exception as e:
-        logger.error("Unknown errror while copying {filepath} ({e}")
+        try:
+            # OS copy
+            shutil.copy2(filepath, dest)
+            nb_files_copied = nb_files_copied + 1
+            size_files_copied = size_files_copied + size
+            if cmd == "testcopy":
+                logger.info("%s copied in test mode (in %s)", filepath, dest)
+            elif cmd == "import":
+                logger.info("%s imported in %s", filepath, dest)    
+        except FileNotFoundError:
+            logger.error("%s doesn't exist (source)", filepath)
+        except PermissionError:
+            logger.error("Wrong permissions for copying into {dest}")
+        except Exception as e:
+            logger.error("Unknown errror while copying {filepath} ({e}")
+
+    return 
 
 
 
@@ -443,16 +462,18 @@ def os_file_copy(filepath, dest, cmd):
 #    ====================================================================
 #
 
-def copy_file(file_path, dest, cmd):
+def copy_file(file_path, dest, cmd, size):
+
+    global size_files_copied
 
     existing_file = os.path.isfile(file_path)
 
     if cmd == "testcopy":
-        os_file_copy( file_path, config["directories"]["trash"], cmd)
+        os_file_copy( file_path, config["directories"]["trash"], cmd, size)
     elif cmd == "import":
-        os_file_copy(file_path, config["directories"]["destination"], cmd)
+        os_file_copy(file_path, config["directories"]["destination"], cmd, size)
 
-    return
+    return 
 
 
 
@@ -549,9 +570,9 @@ def read_source(basepath_list, cmd):
                         logger.info("%s existing in DB", file_info.file_path)
                     else:
                         if cmd == "testcopy":
-                            copy_file(file_info.file_path, config["directories"]["trash"], cmd)
+                            copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.size)
                         elif cmd == "import":
-                            copy_file(file_info.file_path, config["directories"]["destination"], cmd)
+                            copy_file(file_info.file_path, config["directories"]["destination"], cmd, file_info.size)
                             file_info.original_path = dir_path
                             insert_into_DB(file_info)
                         elif cmd == "read-source":
@@ -667,6 +688,8 @@ def main():
     # 
     # ---> Infos to display
     #
+
+    global nb_files_copied, size_files_copied
                 
     t_dest_lookup = 0.0
     t_source_lookup = 0.0
@@ -680,6 +703,8 @@ def main():
     nb_source_raw = 0
     nb_source_videos = 0
     nb_files_copied = 0
+    size_files_copied = 0
+
 
     # Looking for files
     # ---
@@ -689,6 +714,14 @@ def main():
             t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target)
         case "read-source" | "testcopy" | "import":
             t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath, cmd)
+
+    # Calculate size of all files in DB
+    # ---
+
+    res = cnx.execute("select sum(size) FROM filelist")
+    size = res.fetchone()[0]
+    if size is None:
+        size = 0
 
     print()
     print("-"*72)
@@ -710,18 +743,14 @@ def main():
     print("="*72)
     print("Nb. of DB updates:", nb_db_updates)
     print("-"*72)
-    print("Nb. of files copied:", nb_files_copied)
+    print("Size of all files in DB: {}".format(utils.humanbytes(size)))
+    print("="*72)
+    if cmd == "import":
+        print("Nb. of files copied:", nb_files_copied)
+    else:
+        print("Nb. of files copied:", nb_files_copied, "(in test mode)")
     print("-"*72)
-
-    # Calculate size of all files
-    # ---
-
-    res = cnx.execute("select sum(size) FROM filelist")
-    size = res.fetchone()[0]
-    if size is None:
-        size = 0
-
-    print("Size of all files: {}".format(utils.humanbytes(size)))
+    print("Size of files copied: {}".format(utils.humanbytes(size_files_copied)))
     print("="*72)
 
     # Closing database
