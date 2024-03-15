@@ -423,18 +423,17 @@ def os_file_copy(filepath, dest, cmd, size):
     global nb_files_copied
     global size_files_copied
 
-    # CHeck destination directory
+    # Check destination directory
     destination_file_path = os.path.join(dest, os.path.basename(filepath))
+
+    # Verifying the need for copy
+    existing_file = os.path.isfile(destination_file_path)
 
     if os.path.exists(destination_file_path):
 
         logger.info(f"File {destination_file_path} already exists.")
 
     else:
-        
-        # Create directory if not existing
-        if not os.path.exists(dest):
-            os.makedirs(dest, exist_ok=True)
 
         try:
             # OS copy
@@ -462,16 +461,29 @@ def os_file_copy(filepath, dest, cmd, size):
 #    ====================================================================
 #
 
-def copy_file(file_path, dest, cmd, size):
+def copy_file(file_path, dest, cmd, folder_date, size):
 
     global size_files_copied
+        
+    # Create directory and subdirectories if not existing
+    # ---
 
-    existing_file = os.path.isfile(file_path)
+    if not os.path.exists(dest):
+        os.makedirs(dest, exist_ok=True)
 
-    if cmd == "testcopy":
-        os_file_copy( file_path, config["directories"]["trash"], cmd, size)
-    elif cmd == "import":
-        os_file_copy(file_path, config["directories"]["destination"], cmd, size)
+    year_dir = dest + os.path.sep + folder_date[0:4]
+    if not os.path.exists(year_dir):
+        os.makedirs(year_dir, exist_ok=True)
+
+    month_dir = year_dir + os.path.sep + folder_date[5:7]
+    if not os.path.exists(month_dir):
+        os.makedirs(month_dir, exist_ok=True)
+
+    final_dest_dir = month_dir + os.path.sep + folder_date
+    if not os.path.exists(final_dest_dir):
+        os.makedirs(final_dest_dir, exist_ok=True)
+
+    os_file_copy(file_path, final_dest_dir, cmd, size)
 
     return 
 
@@ -570,9 +582,9 @@ def read_source(basepath_list, cmd):
                         logger.info("%s existing in DB", file_info.file_path)
                     else:
                         if cmd == "testcopy":
-                            copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.size)
+                            copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                         elif cmd == "import":
-                            copy_file(file_info.file_path, config["directories"]["destination"], cmd, file_info.size)
+                            copy_file(file_info.file_path, config["directories"]["destination"], cmd, file_info.folder_date, file_info.size)
                             file_info.original_path = dir_path
                             insert_into_DB(file_info)
                         elif cmd == "read-source":
@@ -607,9 +619,9 @@ def source_lookup(basepath_list, cmd):
 
     nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = read_source(basepath_list, cmd)
 
-    t_dest_lookup = time.time() - t0
+    t_source_lookup = time.time() - t0
 
-    return t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
+    return t_source_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
 
 
 #
@@ -658,7 +670,6 @@ def main():
 
     # Checking arguments if any
     
-    print("="*72)
     cmd = utils.check_arguments()
     logger.info("Command: {}".format(cmd))
 
@@ -693,7 +704,6 @@ def main():
                 
     t_dest_lookup = 0.0
     t_source_lookup = 0.0
-    t_copy = 0.0
     nb_dest_files = 0
     nb_dest_raw = 0
     nb_dest_videos = 0
@@ -713,7 +723,7 @@ def main():
         case "read-target":
             t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target)
         case "read-source" | "testcopy" | "import":
-            t_dest_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath, cmd)
+            t_source_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath, cmd)
 
     # Calculate size of all files in DB
     # ---
@@ -724,7 +734,7 @@ def main():
         size = 0
 
     print()
-    print("-"*72)
+    print("="*72)
     print("Nb. of records in DB, before running:", nb_db_records)
     print("-"*72)
     print("Target lookup duration: {:.2f} sec.".format(t_dest_lookup))
@@ -734,7 +744,7 @@ def main():
     print("Nb. of destination RAW files:", nb_dest_raw)
     print("Nb. of destination Video files:", nb_dest_videos)
     print("="*72)
-    print("Copy duration: {:.2f} sec.".format(t_copy))
+    print("Target lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
     print("-"*72)
     print("Nb. of source files:", nb_source_files)
     print("Nb. of PIC source files:", nb_source_pics)
