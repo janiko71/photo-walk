@@ -301,6 +301,7 @@ def get_file_info(dir_path, file_name):
     file_info.filename_date = extract_date_from_filename(file_info.filename)
     file_info.trt_date = datetime.now().strftime("%Y%m%d%H%M%S")
     file_info.size = os.path.getsize(file_info.file_path)
+    extracted_date = None
 
     if (file_info.file_extension.lower() in PICT_EXT_LIST):
 
@@ -341,8 +342,8 @@ def get_file_info(dir_path, file_name):
 
         file_info.walk_type = "RAW"
 
-        if file_info.extracted_date:
-            file_info.folder_date = file_info.extracted_date
+        if extracted_date:
+            file_info.folder_date = extracted_date
         else:
             file_info.folder_date = file_info.creation_date_short
 
@@ -352,8 +353,8 @@ def get_file_info(dir_path, file_name):
 
         file_info.walk_type = "VIDEO"
 
-        if file_info.extracted_date:
-            file_info.folder_date = file_info.extracted_date
+        if extracted_date:
+            file_info.folder_date = extracted_date
         else:
             file_info.folder_date = file_info.creation_date_short
 
