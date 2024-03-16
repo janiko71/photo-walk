@@ -285,6 +285,7 @@ def get_file_info(dir_path, file_name):
 
     file_info.file_path = os.path.join(dir_path, file_name)
     file_info.filename = file_name
+    print(f"Looking {file_info.file_path}", end='\r', flush=True)
 
     # Obtenir l'extension du fichier
     file_info.file_extension = os.path.splitext(file_name)[1]
@@ -310,7 +311,10 @@ def get_file_info(dir_path, file_name):
         file_info.walk_type = "PIC"
                     
         with open(file_info.file_path, 'rb') as file:
-            tags = exifread.process_file(file, details=False)
+            try:
+                tags = exifread.process_file(file, details=False)
+            except Exception as e:
+                logging.error("Unknown errror while retireving EXIF infos for {filepath} ({e}")
 
         if 'EXIF DateTimeOriginal' in tags:
 
