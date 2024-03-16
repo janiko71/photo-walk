@@ -285,7 +285,7 @@ def get_file_info(dir_path, file_name):
 
     file_info.file_path = os.path.join(dir_path, file_name)
     file_info.filename = file_name
-    print(f"Looking {file_info.file_path}                         ", end='\r', flush=True)
+    print(f"Looking {file_info.file_path}" + " "*80, end='\r', flush=True)
 
     # Obtenir l'extension du fichier
     file_info.file_extension = os.path.splitext(file_name)[1]
@@ -455,7 +455,7 @@ def os_file_copy(filepath, dest, cmd, size):
         except PermissionError:
             logger.error("Wrong permissions for copying into {dest}")
         except Exception as e:
-            logger.error("Unknown errror while copying {filepath} ({e}")
+            logger.error("Unknown error while copying {filepath} ({e}")
 
     return 
 
