@@ -285,7 +285,7 @@ def get_file_info(dir_path, file_name):
 
     file_info.file_path = os.path.join(dir_path, file_name)
     file_info.filename = file_name
-    print(f"Looking {file_info.file_path}", end='\r', flush=True)
+    print(f"Looking {file_info.file_path}                         ", end='\r', flush=True)
 
     # Obtenir l'extension du fichier
     file_info.file_extension = os.path.splitext(file_name)[1]
