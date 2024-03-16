@@ -313,33 +313,34 @@ def get_file_info(dir_path, file_name):
         with open(file_info.file_path, 'rb') as file:
             try:
                 tags = exifread.process_file(file, details=False)
+
+                if 'EXIF DateTimeOriginal' in tags:
+
+                    date_text = tags['EXIF DateTimeOriginal'].printable
+                    date_parts = date_text.split(' ')
+                    file_info.exif_date = date_parts[0].replace(':', '-') + ' ' + date_parts[1]
+                    file_info.folder_date = file_info.exif_date[:10].replace(':','-')
+                    #img_exif_str = str(img_exif_data).encode('utf-8')
+                    #exif_hash = hashlib.sha256(img_exif_str).hexdigest()
+
+                    exif_info = ""
+                    for tag, value in tags.items():
+                        exif_info += f"{tag}:{value}\n"
+                    logger.debug(exif_info)
+                    # Get EXIF hash
+                    sha256_hasher = hashlib.sha256()
+                    sha256_hasher.update(exif_info.encode('utf-8'))
+                    file_info.exif_hash = sha256_hasher.hexdigest()
+
+                else:
+
+                    file_info.exif_date = ""
+                    file_info.exif_hash = ""
+                    file_info.folder_date = file_info.creation_date_short
+
             except Exception as e:
-                logging.error("Unknown errror while retireving EXIF infos for {filepath} ({e}")
-
-        if 'EXIF DateTimeOriginal' in tags:
-
-            date_text = tags['EXIF DateTimeOriginal'].printable
-            date_parts = date_text.split(' ')
-            file_info.exif_date = date_parts[0].replace(':', '-') + ' ' + date_parts[1]
-            file_info.folder_date = file_info.exif_date[:10].replace(':','-')
-            #img_exif_str = str(img_exif_data).encode('utf-8')
-            #exif_hash = hashlib.sha256(img_exif_str).hexdigest()
-
-            exif_info = ""
-            for tag, value in tags.items():
-                exif_info += f"{tag}:{value}\n"
-            logger.debug(exif_info)
-            # Get EXIF hash
-            sha256_hasher = hashlib.sha256()
-            sha256_hasher.update(exif_info.encode('utf-8'))
-            file_info.exif_hash = sha256_hasher.hexdigest()
-
-        else:
-
-            file_info.exif_date = ""
-            file_info.exif_hash = ""
-            file_info.folder_date = file_info.creation_date_short
-
+                logging.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e}")
+            
     elif (file_info.file_extension.lower() in RAW_PICT_EXT_LIST):
 
         # This is a RAW pic
