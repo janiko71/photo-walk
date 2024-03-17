@@ -429,15 +429,15 @@ def os_file_copy(filepath, dest, cmd, size):
     global nb_files_copied
     global size_files_copied
 
-    # Check destination directory
-    destination_file_path = os.path.join(dest, os.path.basename(filepath))
+    # Check target directory
+    target_file_path = os.path.join(dest, os.path.basename(filepath))
 
     # Verifying the need for copy
-    existing_file = os.path.isfile(destination_file_path)
+    existing_file = os.path.isfile(target_file_path)
 
-    if os.path.exists(destination_file_path):
+    if os.path.exists(target_file_path):
 
-        logger.info(f"File {destination_file_path} already exists.")
+        logger.info(f"File {target_file_path} already exists.")
 
     else:
 
@@ -590,7 +590,7 @@ def read_source(basepath_list, cmd):
                         if cmd == "testcopy":
                             copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                         elif cmd == "import":
-                            copy_file(file_info.file_path, config["directories"]["destination"], cmd, file_info.folder_date, file_info.size)
+                            copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size)
                             file_info.original_path = dir_path
                             insert_into_DB(file_info)
                         elif cmd == "read-source":
@@ -688,7 +688,7 @@ def main():
     logger.debug(basepath)
     logger.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
-    target = config['directories']['destination']
+    target = config['directories']['target']
 
     #
     # ---> DB connection
@@ -745,10 +745,10 @@ def main():
     print("-"*72)
     print("Target lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print("-"*72)
-    print("Nb. of destination files:", nb_dest_files)
-    print("Nb. of destination PIC files:", nb_dest_pics)
-    print("Nb. of destination RAW files:", nb_dest_raw)
-    print("Nb. of destination Video files:", nb_dest_videos)
+    print("Nb. of target files:", nb_dest_files)
+    print("Nb. of target PIC files:", nb_dest_pics)
+    print("Nb. of target RAW files:", nb_dest_raw)
+    print("Nb. of target Video files:", nb_dest_videos)
     print("="*72)
     print("Target lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
     print("-"*72)
