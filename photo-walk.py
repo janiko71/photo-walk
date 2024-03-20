@@ -57,7 +57,7 @@ VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4
 config = configparser.ConfigParser()
 
 # Read the configuration file
-config.read('photo-walk.ini') 
+config.read('config.ini') 
 
 # Some DB variables
 db = config['db']['name']

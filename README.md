@@ -15,7 +15,7 @@ For what? To prevent the import of files that you intentionally deleted. Then yo
 
 After 'read', files may exists in the DB without being copied. When copying, check if it exists and log. There's a log file for every import.
 
-## Configuration file example
+## Configuration file example (name=config.ini)
 
 ```
 [directories]
