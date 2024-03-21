@@ -467,7 +467,7 @@ def os_file_copy(filepath, dest, cmd, size):
 #    ====================================================================
 #
 
-def copy_file(file_path, dest, cmd, folder_date, size):
+def copy_file(file_path, dest, cmd, folder_date, size, file_type):
 
     global size_files_copied
         
@@ -584,23 +584,25 @@ def read_source(basepath_list, cmd):
                         case "VIDEO":
                             nb_source_videos = nb_source_videos + 1
 
-                    # Check if the file is already in the DB
-                    cursor = cnx.cursor()
-                    cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
-                    res = cursor.fetchone()
+                    if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
 
-                    if res:
-                        # existing
-                        logger.info("%s existing in DB", file_info.file_path)
-                    else:
-                        if cmd == "testcopy":
-                            copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
-                        elif cmd == "import":
-                            copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size)
-                            file_info.original_path = dir_path
-                            insert_into_DB(file_info)
-                        elif cmd == "read-source":
-                            logger.info("%s would have been copied", file_info.file_path)
+                        # Check if the file is already in the DB
+                        cursor = cnx.cursor()
+                        cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
+                        res = cursor.fetchone()
+
+                        if res:
+                            # existing
+                            logger.info("%s existing in DB", file_info.file_path)
+                        else:
+                            if cmd == "testcopy":
+                                copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size, file_info.walk_type)
+                            elif cmd == "import":
+                                copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size, file_info.walk_type)
+                                file_info.original_path = dir_path
+                                insert_into_DB(file_info)
+                            elif cmd == "read-source":
+                                logger.info("%s would have been copied", file_info.file_path)
 
                     pass
         
