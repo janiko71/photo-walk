@@ -467,7 +467,7 @@ def os_file_copy(filepath, dest, cmd, size):
 #    ====================================================================
 #
 
-def copy_file(file_path, dest, cmd, folder_date, size, file_type):
+def copy_file(file_path, dest, cmd, folder_date, size):
 
     global size_files_copied
         
@@ -596,9 +596,9 @@ def read_source(basepath_list, cmd):
                             logger.info("%s existing in DB", file_info.file_path)
                         else:
                             if cmd == "testcopy":
-                                copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size, file_info.walk_type)
+                                copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                             elif cmd == "import":
-                                copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size, file_info.walk_type)
+                                copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size)
                                 file_info.original_path = dir_path
                                 insert_into_DB(file_info)
                             elif cmd == "read-source":
