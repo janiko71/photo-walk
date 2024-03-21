@@ -254,7 +254,7 @@ def insert_into_DB(file_info):
 
     global cnx, nb_db_updates
 
-    # Check if filepath is existing
+    # Check (again) if filepath is existing. If we're here, it shouldn't exist
     res = cnx.execute("SELECT 1 FROM filelist WHERE file_path=?", (file_info.file_path,))
     existing_file = res.fetchone()
 
@@ -517,22 +517,28 @@ def read_target(target):
     for dir_path, _, files in os.walk(target, topdown=True):
 
         for file_name in files:
+
+            # Check if filepath is existing in DB. If yes, we skip it. 
+            target_file_path = os.path.join(dir_path, file_name)
+            res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (target_file_path,))
+            existing_file = res.fetchone()
                     
-            file_info = get_file_info(dir_path, file_name)
+            if not existing_file:
 
-            nb_dest_files = nb_dest_files + 1
+                file_info = get_file_info(dir_path, file_name)
+                nb_dest_files = nb_dest_files + 1
 
-            match file_info.walk_type:
-                case "PIC":
-                    nb_dest_pics = nb_dest_pics + 1
-                case "RAW":
-                    nb_dest_raw = nb_dest_raw + 1
-                case "VIDEO":
-                    nb_dest_videos = nb_dest_videos + 1
+                match file_info.walk_type:
+                    case "PIC":
+                        nb_dest_pics = nb_dest_pics + 1
+                    case "RAW":
+                        nb_dest_raw = nb_dest_raw + 1
+                    case "VIDEO":
+                        nb_dest_videos = nb_dest_videos + 1
 
-            if file_info.walk_type != "unknwon":
+                if file_info.walk_type != "unknwon":
 
-                insert_into_DB(file_info)
+                    insert_into_DB(file_info)
 
 
     return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
@@ -742,13 +748,13 @@ def main():
     print()
     print("="*72)
     print("Nb. of records in DB, before running:", nb_db_records)
-    print("-"*72)
+    print("="*72)
     print("Target lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print("-"*72)
-    print("Nb. of target files:", nb_dest_files)
-    print("Nb. of target PIC files:", nb_dest_pics)
-    print("Nb. of target RAW files:", nb_dest_raw)
-    print("Nb. of target Video files:", nb_dest_videos)
+    print("Nb. of new target files:", nb_dest_files)
+    print("Nb. of new target PIC files:", nb_dest_pics)
+    print("Nb. of new target RAW files:", nb_dest_raw)
+    print("Nb. of new target Video files:", nb_dest_videos)
     print("="*72)
     print("Target lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
     print("-"*72)
