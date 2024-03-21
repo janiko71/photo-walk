@@ -57,7 +57,7 @@ VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4
 config = configparser.ConfigParser()
 
 # Read the configuration file
-config.read('config.ini') 
+config.read('config.ini', encoding='utf-8') 
 
 # Some DB variables
 db = config['db']['name']
@@ -339,7 +339,10 @@ def get_file_info(dir_path, file_name):
                     file_info.folder_date = file_info.creation_date_short
 
             except Exception as e:
+                
                 logging.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e}")
+                # We need a folder date, even if EXIT was not readable
+                file_info.folder_date = file_info.creation_date_short
             
     elif (file_info.file_extension.lower() in RAW_PICT_EXT_LIST):
 
@@ -758,7 +761,7 @@ def main():
     print("Nb. of new target RAW files:", nb_dest_raw)
     print("Nb. of new target Video files:", nb_dest_videos)
     print("="*72)
-    print("Target lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
+    print("Source lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
     print("-"*72)
     print("Nb. of source files:", nb_source_files)
     print("Nb. of PIC source files:", nb_source_pics)
