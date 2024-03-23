@@ -5,7 +5,7 @@ import time
 #  Global constants (default)
 #
 
-SUPPORTED_COMMANDS = ["read-target", "read-source", "testcopy", "import"]
+SUPPORTED_COMMANDS = ["reference", "read-import", "testcopy", "import"]
 
 
 

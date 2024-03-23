@@ -12,7 +12,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["import"]
+            "args": ["reference"]
         }
     ]
 }

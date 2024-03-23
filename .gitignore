@@ -3,10 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Tesr files
+# Test files
 *.jpg
 *.png
 dest 
+reference
+source
 
 # C extensions
 *.so

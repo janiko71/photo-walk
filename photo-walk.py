@@ -340,7 +340,7 @@ def get_file_info(dir_path, file_name):
 
             except Exception as e:
                 
-                logging.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e}")
+                logger.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e})")
                 # We need a folder date, even if EXIT was not readable
                 file_info.folder_date = file_info.creation_date_short
             
@@ -432,15 +432,15 @@ def os_file_copy(filepath, dest, cmd, size):
     global nb_files_copied
     global size_files_copied
 
-    # Check target directory
-    target_file_path = os.path.join(dest, os.path.basename(filepath))
+    # Check reference directory
+    reference_file_path = os.path.join(dest, os.path.basename(filepath))
 
     # Verifying the need for copy
-    existing_file = os.path.isfile(target_file_path)
+    existing_file = os.path.isfile(reference_file_path)
 
-    if os.path.exists(target_file_path):
+    if os.path.exists(reference_file_path):
 
-        logger.info(f"File {target_file_path} already exists.")
+        logger.info(f"File {reference_file_path} already exists.")
 
     else:
 
@@ -454,7 +454,7 @@ def os_file_copy(filepath, dest, cmd, size):
             elif cmd == "import":
                 logger.info("%s imported in %s", filepath, dest)    
         except FileNotFoundError:
-            logger.error("%s doesn't exist (source)", filepath)
+            logger.error("%s doesn't exist (import directory)", filepath)
         except PermissionError:
             logger.error("Wrong permissions for copying into {dest}")
         except Exception as e:
@@ -500,13 +500,13 @@ def copy_file(file_path, dest, cmd, folder_date, size):
 
 #
 #    ====================================================================
-#     Directory browsing (for target)
+#     Directory browsing (for reference)
 #    ====================================================================
 #
 
-def read_target(target):
+def read_reference(reference):
 
-    logger.info("Considering %s as target directory", target)
+    logger.info("Considering %s as reference directory", reference)
 
     nb_dest_files = 0
     nb_dest_pics = 0
@@ -517,13 +517,13 @@ def read_target(target):
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
     #
 
-    for dir_path, _, files in os.walk(target, topdown=True):
+    for dir_path, _, files in os.walk(reference, topdown=True):
 
         for file_name in files:
 
             # Check if filepath is existing in DB. If yes, we skip it. 
-            target_file_path = os.path.join(dir_path, file_name)
-            res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (target_file_path,))
+            reference_file_path = os.path.join(dir_path, file_name)
+            res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
             existing_file = res.fetchone()
                     
             if not existing_file:
@@ -549,16 +549,16 @@ def read_target(target):
 
 #
 #    ====================================================================
-#     Directory browsing (for multiple source paths)
+#     Directory browsing (for multiple import_dir paths)
 #    ====================================================================
 #
 
-def read_source(basepath_list, cmd):
+def read_import_dir(basepath_list, cmd):
 
-    nb_source_files = 0
-    nb_source_pics = 0
-    nb_source_raw = 0
-    nb_source_videos = 0
+    nb_import_dir_files = 0
+    nb_import_dir_pics = 0
+    nb_import_dir_raw = 0
+    nb_import_dir_videos = 0
 
     # Loop over directories 
 
@@ -569,7 +569,7 @@ def read_source(basepath_list, cmd):
         if line[0] != '':
 
             basepath = line[0]
-            logger.info("Considering %s as source directory", basepath)
+            logger.info("Considering %s as import directory", basepath)
 
             for dir_path, _, files in os.walk(basepath, topdown=True):
 
@@ -577,15 +577,15 @@ def read_source(basepath_list, cmd):
 
                     file_info = get_file_info(dir_path, file_name)
 
-                    nb_source_files = nb_source_files + 1
+                    nb_import_dir_files = nb_import_dir_files + 1
 
                     match file_info.walk_type:
                         case "PIC":
-                            nb_source_pics = nb_source_pics + 1
+                            nb_import_dir_pics = nb_import_dir_pics + 1
                         case "RAW":
-                            nb_source_raw = nb_source_raw + 1
+                            nb_import_dir_raw = nb_import_dir_raw + 1
                         case "VIDEO":
-                            nb_source_videos = nb_source_videos + 1
+                            nb_import_dir_videos = nb_import_dir_videos + 1
 
                     if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
 
@@ -601,15 +601,15 @@ def read_source(basepath_list, cmd):
                             if cmd == "testcopy":
                                 copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                             elif cmd == "import":
-                                copy_file(file_info.file_path, config["directories"]["target"], cmd, file_info.folder_date, file_info.size)
+                                copy_file(file_info.file_path, config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
                                 file_info.original_path = dir_path
                                 insert_into_DB(file_info)
-                            elif cmd == "read-source":
+                            elif cmd == "read-import":
                                 logger.info("%s would have been copied", file_info.file_path)
 
                     pass
         
-    return nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
+    return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos
 
 
 #
@@ -618,7 +618,7 @@ def read_source(basepath_list, cmd):
 #    ====================================================================
 #
 
-def source_lookup(basepath_list, cmd):
+def import_dir_lookup(basepath_list, cmd):
 
     """
         Args:
@@ -630,15 +630,15 @@ def source_lookup(basepath_list, cmd):
 
     """
 
-    # Read target to fill the DB with already imported files
+    # Read reference to fill the DB with already imported files
 
     t0 = time.time()
 
-    nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = read_source(basepath_list, cmd)
+    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos = read_import_dir(basepath_list, cmd)
 
-    t_source_lookup = time.time() - t0
+    t_import_dir_lookup = time.time() - t0
 
-    return t_source_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos
+    return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos
 
 
 #
@@ -647,11 +647,11 @@ def source_lookup(basepath_list, cmd):
 #    ====================================================================
 #
 
-def target_lookup(target):
+def reference_lookup(reference):
 
     """
         Args:
-            target: Target directory (where to copy files)
+            reference: Reference directory (where to copy files)
 
         Returns:
             t (time): The execution time of this function
@@ -659,11 +659,11 @@ def target_lookup(target):
 
     """
 
-    # Read target to fill the DB with already imported files
+    # Read reference to fill the DB with already imported files
 
     t0 = time.time()
 
-    nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = read_target(target)
+    nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = read_reference(reference)
 
     t_dest_lookup = time.time() - t0
 
@@ -694,12 +694,12 @@ def main():
     # ---> Read the directory files list
     #
 
-    basepath = config['directories']['sources'].split(',')
+    basepath = config['directories']['import_dirs'].split(',')
 
     logger.debug(basepath)
     logger.info("Default blocksize for this system is {} bytes.".format(io.DEFAULT_BUFFER_SIZE))
 
-    target = config['directories']['target']
+    reference = config['directories']['reference']
 
     #
     # ---> DB connection
@@ -720,15 +720,15 @@ def main():
     global nb_files_copied, size_files_copied
                 
     t_dest_lookup = 0.0
-    t_source_lookup = 0.0
+    t_import_dir_lookup = 0.0
     nb_dest_files = 0
     nb_dest_raw = 0
     nb_dest_videos = 0
     nb_dest_pics = 0
-    nb_source_files = 0
-    nb_source_pics = 0
-    nb_source_raw = 0
-    nb_source_videos = 0
+    nb_import_dir_files = 0
+    nb_import_dir_pics = 0
+    nb_import_dir_raw = 0
+    nb_import_dir_videos = 0
     nb_files_copied = 0
     size_files_copied = 0
 
@@ -737,10 +737,10 @@ def main():
     # ---
 
     match cmd:
-        case "read-target":
-            t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = target_lookup(target)
-        case "read-source" | "testcopy" | "import":
-            t_source_lookup, nb_source_files, nb_source_pics, nb_source_raw, nb_source_videos = source_lookup(basepath, cmd)
+        case "reference":
+            t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = reference_lookup(reference)
+        case "read-import" | "testcopy" | "import":
+            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos = import_dir_lookup(basepath, cmd)
 
     # Calculate size of all files in DB
     # ---
@@ -750,23 +750,23 @@ def main():
     if size is None:
         size = 0
 
-    print()
+    print("\n")
     print("="*72)
     print("Nb. of records in DB, before running:", nb_db_records)
     print("="*72)
-    print("Target lookup duration: {:.2f} sec.".format(t_dest_lookup))
+    print("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print("-"*72)
-    print("Nb. of new target files:", nb_dest_files)
-    print("Nb. of new target PIC files:", nb_dest_pics)
-    print("Nb. of new target RAW files:", nb_dest_raw)
-    print("Nb. of new target Video files:", nb_dest_videos)
+    print("Nb. of new reference files:", nb_dest_files)
+    print("Nb. of new reference PIC files:", nb_dest_pics)
+    print("Nb. of new reference RAW files:", nb_dest_raw)
+    print("Nb. of new reference Video files:", nb_dest_videos)
     print("="*72)
-    print("Source lookup and copy duration: {:.2f} sec.".format(t_source_lookup))
+    print("Import directories lookup and copy duration: {:.2f} sec.".format(t_import_dir_lookup))
     print("-"*72)
-    print("Nb. of source files:", nb_source_files)
-    print("Nb. of PIC source files:", nb_source_pics)
-    print("Nb. of RAW source files:", nb_source_raw)
-    print("Nb. of Video source files:", nb_source_videos)
+    print("Nb. of import directories files:", nb_import_dir_files)
+    print("Nb. of PIC files in import directories:", nb_import_dir_pics)
+    print("Nb. of RAW files in import directories:", nb_import_dir_raw)
+    print("Nb. of Video files in import directories:", nb_import_dir_videos)
     print("="*72)
     print("Nb. of DB updates:", nb_db_updates)
     print("-"*72)
