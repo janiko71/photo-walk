@@ -208,7 +208,7 @@ def db_create(db):
                     modify_date TEXT, \
                     filename_date TEXT, \
                     folder_date TEXT, \
-                    file_hash CHAR(256), \
+                    file_hash CHAR(256) UNIQUE, \
                     exif_date TEXT, \
                     exif_content TEXT, \
                     exif_hash CHAR(256), \
@@ -263,7 +263,10 @@ def insert_into_DB(file_info):
         #            filename_date, folder_date, file_hash, exif_date, exif_content, exif_hash, size, trt_date, type) VALUES \
         #            (?, ?")
         requete_insertion = f'''INSERT INTO filelist ({', '.join(vars(file_info).keys())}) VALUES ({', '.join(['?' for _ in vars(file_info)])})'''
-        cnx.execute(requete_insertion, tuple(vars(file_info).values()))
+        try:
+            cnx.execute(requete_insertion, tuple(vars(file_info).values()))
+        except sqlite3.IntegrityError as ie:
+            logger.warning(f"Already existing file hash for {file_info.file_path} (ie)")
         walk_commit()
 
     return
@@ -521,27 +524,31 @@ def read_reference(reference):
 
         for file_name in files:
 
-            # Check if filepath is existing in DB. If yes, we skip it. 
-            reference_file_path = os.path.join(dir_path, file_name)
-            res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
-            existing_file = res.fetchone()
-                    
-            if not existing_file:
+            extension = os.path.splitext(file_name)[1].lower()
 
-                file_info = get_file_info(dir_path, file_name)
-                nb_dest_files = nb_dest_files + 1
+            if extension in PICT_EXT_LIST or extension in VIDEO_EXT_LIST or extension in RAW_PICT_EXT_LIST: 
 
-                match file_info.walk_type:
-                    case "PIC":
-                        nb_dest_pics = nb_dest_pics + 1
-                    case "RAW":
-                        nb_dest_raw = nb_dest_raw + 1
-                    case "VIDEO":
-                        nb_dest_videos = nb_dest_videos + 1
+                # Check if filepath is existing in DB. If yes, we skip it. 
+                reference_file_path = os.path.join(dir_path, file_name)
+                res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
+                existing_file = res.fetchone()
+                        
+                if not existing_file:
 
-                if file_info.walk_type != "unknwon":
+                    file_info = get_file_info(dir_path, file_name)
+                    nb_dest_files = nb_dest_files + 1
 
-                    insert_into_DB(file_info)
+                    match file_info.walk_type:
+                        case "PIC":
+                            nb_dest_pics = nb_dest_pics + 1
+                        case "RAW":
+                            nb_dest_raw = nb_dest_raw + 1
+                        case "VIDEO":
+                            nb_dest_videos = nb_dest_videos + 1
+
+                    if file_info.walk_type != "unknwon":
+
+                        insert_into_DB(file_info)
 
 
     return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
