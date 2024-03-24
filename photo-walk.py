@@ -240,7 +240,6 @@ def walk_commit():
 
     global cnx, nb_db_updates
 
-    nb_db_updates = nb_db_updates + 1
     if (nb_db_updates % COMMIT_INTERVAL == 0):
         cnx.commit()
     return
@@ -265,9 +264,10 @@ def insert_into_DB(file_info):
         requete_insertion = f'''INSERT INTO filelist ({', '.join(vars(file_info).keys())}) VALUES ({', '.join(['?' for _ in vars(file_info)])})'''
         try:
             cnx.execute(requete_insertion, tuple(vars(file_info).values()))
+            nb_db_updates = nb_db_updates + 1
+            walk_commit()
         except sqlite3.IntegrityError as ie:
             logger.warning(f"Already existing file hash for {file_info.file_path} (ie)")
-        walk_commit()
 
     return
 
