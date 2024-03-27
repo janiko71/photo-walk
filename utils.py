@@ -159,8 +159,9 @@ def check_arguments():
     return args.command
 
 
-
+# ----------------------------
 def humanbytes(B):
+# ----------------------------
     
     # https://stackoverflow.com/questions/12523586/python-format-size-application-converting-b-to-kb-mb-gb-tb/52379087
     'Return the given bytes as a human friendly KB, MB, GB, or TB string'

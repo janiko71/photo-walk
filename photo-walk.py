@@ -132,6 +132,18 @@ def exit_handler(signum, frame):
 
 
 
+# ----------------------------
+def print_and_log(str1, str2=None, str3=None):
+# ----------------------------
+
+    str_resultat = str1 + (str(str2) if str2 is not None else "") + (str(str3) if str3 is not None else "")
+
+    print(str_resultat)
+    logger.info(str_resultat)
+
+    return
+
+
 #
 #    ====================================================================
 #     Database connexion
@@ -757,35 +769,35 @@ def main():
     if size is None:
         size = 0
 
-    print("\n")
-    print("="*72)
-    print("Nb. of records in DB, before running:", nb_db_records)
-    print("="*72)
-    print("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
-    print("-"*72)
-    print("Nb. of new reference files:", nb_dest_files)
-    print("Nb. of new reference PIC files:", nb_dest_pics)
-    print("Nb. of new reference RAW files:", nb_dest_raw)
-    print("Nb. of new reference Video files:", nb_dest_videos)
-    print("="*72)
-    print("Import directories lookup and copy duration: {:.2f} sec.".format(t_import_dir_lookup))
-    print("-"*72)
-    print("Nb. of import directories files:", nb_import_dir_files)
-    print("Nb. of PIC files in import directories:", nb_import_dir_pics)
-    print("Nb. of RAW files in import directories:", nb_import_dir_raw)
-    print("Nb. of Video files in import directories:", nb_import_dir_videos)
-    print("="*72)
-    print("Nb. of DB updates:", nb_db_updates)
-    print("-"*72)
-    print("Size of all files in DB: {}".format(utils.humanbytes(size)))
-    print("="*72)
+    print_and_log("")
+    print_and_log("="*72)
+    print_and_log("Nb. of records in DB, before running:", nb_db_records)
+    print_and_log("="*72)
+    print_and_log("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
+    print_and_log("-"*72)
+    print_and_log("Nb. of new reference files:", nb_dest_files)
+    print_and_log("Nb. of new reference PIC files:", nb_dest_pics)
+    print_and_log("Nb. of new reference RAW files:", nb_dest_raw)
+    print_and_log("Nb. of new reference Video files:", nb_dest_videos)
+    print_and_log("="*72)
+    print_and_log("Import directories lookup and copy duration: {:.2f} sec.".format(t_import_dir_lookup))
+    print_and_log("-"*72)
+    print_and_log("Nb. of import directories files:", nb_import_dir_files)
+    print_and_log("Nb. of PIC files in import directories:", nb_import_dir_pics)
+    print_and_log("Nb. of RAW files in import directories:", nb_import_dir_raw)
+    print_and_log("Nb. of Video files in import directories:", nb_import_dir_videos)
+    print_and_log("="*72)
+    print_and_log("Nb. of DB updates:", nb_db_updates)
+    print_and_log("-"*72)
+    print_and_log("Size of all files in DB: {}".format(utils.humanbytes(size)))
+    print_and_log("="*72)
     if cmd == "import":
-        print("Nb. of files copied:", nb_files_copied)
+        print_and_log("Nb. of files copied:", nb_files_copied)
     else:
-        print("Nb. of files copied:", nb_files_copied, "(in test mode)")
-    print("-"*72)
-    print("Size of files copied: {}".format(utils.humanbytes(size_files_copied)))
-    print("="*72)
+        print_and_log("Nb. of files copied:", nb_files_copied, "(in test mode)")
+    print_and_log("-"*72)
+    print_and_log("Size of files copied: {}".format(utils.humanbytes(size_files_copied)))
+    print_and_log("="*72)
 
     # Closing database
     # ---
