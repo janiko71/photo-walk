@@ -92,6 +92,10 @@ global nb_files_copied, size_files_copied
 #
 def exit_handler(signum, frame):
 
+    global cnx
+
+    cnx.commit()
+
     print()
     print("Normal exit from KeyboardInterrupt (CTRL+C)")
     #utils.checkpoint_db(cnx, last_path, last_file, commit = True)
@@ -169,16 +173,15 @@ def db_create(db):
     cnx.execute("CREATE TABLE filelist (\
                     fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
                     filename TINYTEXT, \
-                    file_extension CHAR(30), \
-                    onedrive_filepath VARCHAR(4096) UNIQUE, \
-                    aes_filepath VARCHAR(4096) UNIQUE, \
-                    std_filepath VARCHAR(4096) UNIQUE) \
+                    std_filepath VARCHAR(4096) UNIQUE, \
+                    in_onedrive CHAR(1), \
+                    in_aes CHAR(1)) \
                 ")
     logger.info("Filetable successfully created")
 
     # ---> Some useful indexes to speed up the processing
 
-    cnx.execute("CREATE INDEX index_common_filepath ON filelist (common_filepath)")
+    cnx.execute("CREATE INDEX index_std_filepath ON filelist (std_filepath)")
     logger.info("Indexes successfully created")
 
     cnx.commit()
@@ -200,32 +203,49 @@ def walk_commit():
         cnx.commit()
     return
 
+
+
 #
 #    ====================================================================
-#     Inserting file informations into DB, if needed
+#     Directory browsing (AES)
 #    ====================================================================
 #
-def insert_into_DB(file_info):
 
-    global cnx, nb_db_updates
+def read_aes():
 
-    # Check (again) if filepath is existing. If we're here, it shouldn't exist
-    res = cnx.execute("SELECT 1 FROM filelist WHERE file_path=?", (file_info.file_path,))
-    existing_file = res.fetchone()
+    logger.info("Lecture AES")
+    global nb_db_updates
+    nb_db_updates = 0
 
-    if not existing_file:
-        #cnx.execute("INSERT INTO filelist (filename, extension, mime_type, original_path, dest_path, creation_date, creation_date_short, modify_date,\
-        #            filename_date, folder_date, file_hash, exif_date, exif_content, exif_hash, size, trt_date, type) VALUES \
-        #            (?, ?")
-        requete_insertion = f'''INSERT INTO filelist ({', '.join(vars(file_info).keys())}) VALUES ({', '.join(['?' for _ in vars(file_info)])})'''
-        try:
-            cnx.execute(requete_insertion, tuple(vars(file_info).values()))
-            nb_db_updates = nb_db_updates + 1
-            walk_commit()
-        except sqlite3.IntegrityError as ie:
-            logger.warning(f"Already existing file hash for {file_info.file_path} (ie)")
+    for dir_path, _, files in os.walk("P:\\", topdown=True):
 
-    return
+        for file_name in files:
+
+            # Check if filepath is existing in DB. If yes, we skip it. 
+            std_filepath = os.path.join(dir_path.replace("P:\\", ""), file_name)
+            res = cnx.execute("SELECT 1  FROM filelist WHERE std_filepath=?", (std_filepath,))
+            existing_file = res.fetchone()
+                        
+            if not existing_file:
+
+                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_aes) values('{file_name}', '{std_filepath}', "1")'''
+                try:
+                    cnx.execute(requete_insertion)
+                    nb_db_updates = nb_db_updates + 1
+                    walk_commit()
+                except sqlite3.IntegrityError as ie:
+                    logger.warning(f"Already existing file hash for {nb_db_updates} (ie)")
+
+            else:
+
+                requete_update = f'''UPDATE filelist SET in_aes = "1" where std_filepath = "{std_filepath}"'''
+                cnx.execute(requete_update)
+                nb_db_updates = nb_db_updates + 1
+                walk_commit()                
+    
+    cnx.commit()
+
+    return 
 
 
 
@@ -238,11 +258,8 @@ def insert_into_DB(file_info):
 def read_onedrive():
 
     logger.info("Lecture OneDrive")
-
-    nb_dest_files = 0
-    nb_dest_pics = 0
-    nb_dest_raw = 0
-    nb_dest_videos = 0
+    global nb_db_updates
+    nb_db_updates = 0
 
     #
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
@@ -253,18 +270,28 @@ def read_onedrive():
         for file_name in files:
 
             extension = os.path.splitext(file_name)[1].lower()
+            if extension == '.aesd':
+                real_filename = file_name[:-5]
+            else:
+                real_filename = file_name
 
             # Check if filepath is existing in DB. If yes, we skip it. 
-            reference_file_path = os.path.join(dir_path, file_name)
-            res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
+            std_filepath = os.path.join(dir_path.replace("D:\\OneDrive\\Docs_Privés", ""), real_filename)
+            res = cnx.execute("SELECT 1  FROM filelist WHERE std_filepath=?", (std_filepath,))
             existing_file = res.fetchone()
                         
             if not existing_file:
 
-                insert_into_DB(file_info)
+                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_onedrive) values('{file_name}', '{std_filepath}', "1")'''
+                try:
+                    cnx.execute(requete_insertion)
+                    nb_db_updates = nb_db_updates + 1
+                    walk_commit()
+                except sqlite3.IntegrityError as ie:
+                    logger.warning(f"Already existing file hash for {nb_db_updates} (ie)")
 
 
-    return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
+    return 
 
 
 
@@ -306,6 +333,7 @@ def main():
     # ---> Read OneDrive directory
     #
 
+    read_aes()
     read_onedrive()
 
 
