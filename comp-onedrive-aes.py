@@ -265,7 +265,7 @@ def read_onedrive():
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
     #
 
-    for dir_path, _, files in os.walk("D:\\OneDrive\\Docs_Privés", topdown=True):
+    for dir_path, _, files in os.walk("D:\\OneDrive\\Docs_Privés\\", topdown=True):
 
         for file_name in files:
 
@@ -276,7 +276,7 @@ def read_onedrive():
                 real_filename = file_name
 
             # Check if filepath is existing in DB. If yes, we skip it. 
-            std_filepath = os.path.join(dir_path.replace("D:\\OneDrive\\Docs_Privés", ""), real_filename)
+            std_filepath = os.path.join(dir_path.replace("D:\\OneDrive\\Docs_Privés\\", ""), real_filename)
             res = cnx.execute("SELECT 1  FROM filelist WHERE std_filepath=?", (std_filepath,))
             existing_file = res.fetchone()
                         
