@@ -1,6 +1,6 @@
 #
 # ================================= 
-# Log into a DB all imported files
+# Comparaison de la liste des fichiers OneDrive et sur AESDrive
 # =================================
 #
 #
@@ -300,6 +300,25 @@ def read_onedrive():
     return 
 
 
+#
+#    ====================================================================
+#     Affichage des fichiers présents d'un seul côté
+#    ====================================================================
+#
+
+def recap():
+
+    global cnx
+
+    # select * from filelist where (in_aes is null or in_onedrive is null);
+    requete = "select * from filelist where (in_aes is null or in_onedrive is null)"
+    res = cnx.execute(requete).fetchall()
+    for row in res:
+        print(row)
+
+    return
+
+
 
 
 #
@@ -341,6 +360,7 @@ def main():
 
     read_onedrive()
     read_aes()
+    recap()
 
 
     # Closing database
