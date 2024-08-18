@@ -808,14 +808,14 @@ def main():
     print_and_log("Nb. of RAW files to import (not present): ", nb_raw_to_import)
     print_and_log("Nb. of Video files to import (not present): ", nb_videos_to_import)
     print_and_log("="*72)
-    print_and_log("Nb. of DB updates:", nb_db_updates)
+    print_and_log("Nb. of DB updates: ", nb_db_updates)
     print_and_log("-"*72)
     print_and_log("Size of all files in DB: {}".format(utils.humanbytes(size)))
     print_and_log("="*72)
     if cmd == "import":
-        print_and_log("Nb. of files copied:", nb_files_copied)
+        print_and_log("Nb. of files copied: ", nb_files_copied)
     else:
-        print_and_log("Nb. of files copied:", nb_files_copied, "(in test mode)")
+        print_and_log("Nb. of files copied: ", nb_files_copied, "(in test mode)")
     print_and_log("-"*72)
     print_and_log("Size of files copied: {}".format(utils.humanbytes(size_files_copied)))
     print_and_log("="*72)
