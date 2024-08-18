@@ -317,6 +317,7 @@ def get_file_info(dir_path, file_name):
     file_info.filename_date = extract_date_from_filename(file_info.filename)
     file_info.trt_date = datetime.now().strftime("%Y%m%d%H%M%S")
     file_info.size = os.path.getsize(file_info.file_path)
+    file_info.walk_type = "unknown"
     extracted_date = None
 
     if (file_info.file_extension.lower() in PICT_EXT_LIST):
@@ -558,7 +559,7 @@ def read_reference(reference):
                         case "VIDEO":
                             nb_dest_videos = nb_dest_videos + 1
 
-                    if file_info.walk_type != "unknwon":
+                    if file_info.walk_type != "unknown":
 
                         insert_into_DB(file_info)
 
@@ -578,6 +579,9 @@ def read_import_dir(basepath_list, cmd):
     nb_import_dir_pics = 0
     nb_import_dir_raw = 0
     nb_import_dir_videos = 0
+    nb_pics_to_import= 0
+    nb_raw_to_import = 0
+    nb_videos_to_import = 0
 
     # Loop over directories 
 
@@ -617,6 +621,15 @@ def read_import_dir(basepath_list, cmd):
                             # existing
                             logger.info("%s existing in DB", file_info.file_path)
                         else:
+                            # Counting files to be copied/imported
+                            match file_info.walk_type:
+                                case "PIC":
+                                    nb_pics_to_import = nb_pics_to_import + 1
+                                case "RAW":
+                                    nb_raw_to_import = nb_raw_to_import + 1
+                                case "VIDEO":
+                                    nb_videos_to_import = nb_videos_to_import + 1
+                            # doing what has to be done
                             if cmd == "testcopy":
                                 copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                             elif cmd == "import":
@@ -628,7 +641,7 @@ def read_import_dir(basepath_list, cmd):
 
                     pass
         
-    return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos
+    return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import
 
 
 #
@@ -653,11 +666,11 @@ def import_dir_lookup(basepath_list, cmd):
 
     t0 = time.time()
 
-    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos = read_import_dir(basepath_list, cmd)
+    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = read_import_dir(basepath_list, cmd)
 
     t_import_dir_lookup = time.time() - t0
 
-    return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos
+    return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import
 
 
 #
@@ -748,6 +761,9 @@ def main():
     nb_import_dir_pics = 0
     nb_import_dir_raw = 0
     nb_import_dir_videos = 0
+    nb_pics_to_import = 0
+    nb_raw_to_import = 0 
+    nb_videos_to_import = 0
     nb_files_copied = 0
     size_files_copied = 0
 
@@ -759,7 +775,7 @@ def main():
         case "reference":
             t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = reference_lookup(reference)
         case "read-import" | "testcopy" | "import":
-            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos = import_dir_lookup(basepath, cmd)
+            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = import_dir_lookup(basepath, cmd)
 
     # Calculate size of all files in DB
     # ---
@@ -771,21 +787,26 @@ def main():
 
     print_and_log("")
     print_and_log("="*72)
-    print_and_log("Nb. of records in DB, before running:", nb_db_records)
+    print_and_log("Nb. of records in DB, before running: ", nb_db_records)
     print_and_log("="*72)
     print_and_log("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print_and_log("-"*72)
-    print_and_log("Nb. of new reference files:", nb_dest_files)
-    print_and_log("Nb. of new reference PIC files:", nb_dest_pics)
-    print_and_log("Nb. of new reference RAW files:", nb_dest_raw)
-    print_and_log("Nb. of new reference Video files:", nb_dest_videos)
+    print_and_log("Nb. of new reference files: ", nb_dest_files)
+    print_and_log("Nb. of new reference PIC files: ", nb_dest_pics)
+    print_and_log("Nb. of new reference RAW files: ", nb_dest_raw)
+    print_and_log("Nb. of new reference Video files: ", nb_dest_videos)
     print_and_log("="*72)
     print_and_log("Import directories lookup and copy duration: {:.2f} sec.".format(t_import_dir_lookup))
     print_and_log("-"*72)
-    print_and_log("Nb. of import directories files:", nb_import_dir_files)
-    print_and_log("Nb. of PIC files in import directories:", nb_import_dir_pics)
-    print_and_log("Nb. of RAW files in import directories:", nb_import_dir_raw)
-    print_and_log("Nb. of Video files in import directories:", nb_import_dir_videos)
+    print_and_log("Nb. of import directories files: ", nb_import_dir_files)
+    print_and_log("Nb. of PIC files in import directories: ", nb_import_dir_pics)
+    print_and_log("Nb. of RAW files in import directories: ", nb_import_dir_raw)
+    print_and_log("Nb. of Video files in import directories: ", nb_import_dir_videos)
+    print_and_log("-"*72)
+    print_and_log("Nb. of import directories files: ", nb_pics_to_import)
+    print_and_log("Nb. of PIC files to import (not present): ", nb_pics_to_import)
+    print_and_log("Nb. of RAW files to import (not present): ", nb_raw_to_import)
+    print_and_log("Nb. of Video files to import (not present): ", nb_videos_to_import)
     print_and_log("="*72)
     print_and_log("Nb. of DB updates:", nb_db_updates)
     print_and_log("-"*72)
