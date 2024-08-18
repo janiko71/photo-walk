@@ -1,6 +1,6 @@
 #
 # ================================= 
-# Log into a DB all imported files
+# Comparaison de la liste des fichiers OneDrive et sur AESDrive
 # =================================
 #
 #
@@ -232,9 +232,9 @@ def read_aes():
                         
             if not existing_file:
 
-                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_aes) values('{file_name}', '{std_filepath}', "1")'''
+                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_aes) values(?, ?, ?)'''
                 try:
-                    cnx.execute(requete_insertion)
+                    cnx.execute(requete_insertion, (file_name, std_filepath, "1",))
                     nb_db_updates = nb_db_updates + 1
                     walk_commit()
                 except sqlite3.IntegrityError as ie:
@@ -242,8 +242,8 @@ def read_aes():
 
             else:
 
-                requete_update = f'''UPDATE filelist SET in_aes = "1" where std_filepath = "{std_filepath}"'''
-                cnx.execute(requete_update)
+                requete_update = f'''UPDATE filelist SET in_aes = "1" where std_filepath = (?)'''
+                cnx.execute(requete_update, (std_filepath,))
                 nb_db_updates = nb_db_updates + 1
                 walk_commit()                
     
@@ -286,16 +286,41 @@ def read_onedrive():
                         
             if not existing_file:
 
-                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_onedrive) values('{file_name}', '{std_filepath}', "1")'''
+                requete_insertion = f'''INSERT INTO filelist (filename, std_filepath, in_onedrive) values(?, ?, ?)'''
                 try:
-                    cnx.execute(requete_insertion)
+                    cnx.execute(requete_insertion, (real_filename, std_filepath, "1",))
                     nb_db_updates = nb_db_updates + 1
                     walk_commit()
                 except sqlite3.IntegrityError as ie:
                     logger.warning(f"Already existing file hash for {nb_db_updates} (ie)")
 
+            else:
+
+                requete_update = f'''UPDATE filelist SET in_onedrive = "1" where std_filepath = (?)'''
+                cnx.execute(requete_update, (std_filepath,))
+                nb_db_updates = nb_db_updates + 1
+                walk_commit()  
 
     return 
+
+
+#
+#    ====================================================================
+#     Affichage des fichiers présents d'un seul côté
+#    ====================================================================
+#
+
+def recap():
+
+    global cnx
+
+    # select * from filelist where (in_aes is null or in_onedrive is null);
+    requete = "select * from filelist where (in_aes is null or in_onedrive is null)"
+    res = cnx.execute(requete).fetchall()
+    for row in res:
+        print(row)
+
+    return
 
 
 
@@ -337,8 +362,9 @@ def main():
     # ---> Read OneDrive directory
     #
 
-    read_aes()
     read_onedrive()
+    read_aes()
+    recap()
 
 
     # Closing database
