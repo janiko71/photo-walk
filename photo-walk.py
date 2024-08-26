@@ -19,13 +19,14 @@ import signal
 import logging
 import shutil
 import configparser
+import ffmpeg
+
 
 from datetime import datetime
 from dateutil import parser
 
 import PIL.Image as PILimage
 from PIL.ExifTags import TAGS, GPSTAGS
-import exifread
 
 from colorama import Fore, Back, Style 
 from colorama import init
@@ -46,7 +47,6 @@ RAW_PICT_EXT_LIST = {".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dcs", ".dng", ".d
                      ".k25", ".kdc", ".mrw", ".nef", ".nrw", ".orf", ".pef", ".ptx", ".raf", \
                      ".raw", ".rw2", ".sr2", ".srf", ".srw", ".x3f"}
 VIDEO_EXT_LIST = {".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mov", ".ogv", ".mp4", ".m4p", ".m4v", ".avi", ".ts", ".webm", ".wm", ".wmv", ".avchd"}
-
 
 
 # -------------------------------------------
@@ -117,12 +117,10 @@ last_file = None
 global nb_files_copied, size_files_copied
 
 
-
-#
 #    ====================================================================
 #     Exit when CTRL-C
 #    ====================================================================
-#
+
 def exit_handler(signum, frame):
 
     print()
@@ -149,6 +147,7 @@ def print_and_log(str1, str2=None, str3=None):
 #     Database connexion
 #    ====================================================================
 #
+
 def db_connect(db):
 
     """
@@ -248,6 +247,7 @@ def db_create(db):
 #     Commits DB if needed
 #    ====================================================================
 #
+
 def walk_commit():
 
     global cnx, nb_db_updates
@@ -256,11 +256,13 @@ def walk_commit():
         cnx.commit()
     return
 
+
 #
 #    ====================================================================
 #     Inserting file informations into DB, if needed
 #    ====================================================================
 #
+
 def insert_into_DB(file_info):
 
     global cnx, nb_db_updates
@@ -283,6 +285,37 @@ def insert_into_DB(file_info):
 
     return
 
+
+#
+#    ====================================================================
+#     Get video file information
+#    ====================================================================
+#
+
+def get_video_metadata(file_path):
+
+    try:
+        probe = ffmpeg.probe(file_path)
+        format_info = probe['format']
+        video_metadata = {
+            "duration": format_info.get('duration'),
+            "size": format_info.get('size'),
+            "bit_rate": format_info.get('bit_rate'),
+            "creation_time": None,
+        }
+        for stream in probe['streams']:
+            if stream['codec_type'] == 'video':
+                video_metadata['width'] = stream.get('width')
+                video_metadata['height'] = stream.get('height')
+                if 'tags' in stream and 'creation_time' in stream['tags']:
+                    video_metadata['creation_time'] = stream['tags']['creation_time']
+                break
+        return video_metadata
+    except ffmpeg.Error as e:
+        print(f"Error reading video metadata: {e}")
+        return None
+
+    
 
 #
 #    ====================================================================
@@ -377,10 +410,14 @@ def get_file_info(dir_path, file_name):
 
         file_info.walk_type = "VIDEO"
 
+        video_metadata = get_video_metadata(file_info.file_path)
+        extracted_date = video_metadata['creation_time']
+
         if extracted_date:
-            file_info.folder_date = extracted_date
+            file_info.folder_date = extracted_date[0:10]
         else:
-            file_info.folder_date = file_info.creation_date_short
+            # file_info.folder_date = file_info.creation_date_short
+            file_info.folder_date = file_info.modify_date[0:10]
 
     # Hash computing for both images and videos
     # ---
