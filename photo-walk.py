@@ -27,6 +27,7 @@ from dateutil import parser
 
 import PIL.Image as PILimage
 from PIL.ExifTags import TAGS, GPSTAGS
+import exifread
 
 from colorama import Fore, Back, Style 
 from colorama import init
@@ -311,7 +312,7 @@ def get_video_metadata(file_path):
                     video_metadata['creation_time'] = stream['tags']['creation_time']
                 break
         return video_metadata
-    except ffmpeg.Error as e:
+    except Exception as e:
         print(f"Error reading video metadata: {e}")
         return None
 
@@ -411,7 +412,9 @@ def get_file_info(dir_path, file_name):
         file_info.walk_type = "VIDEO"
 
         video_metadata = get_video_metadata(file_info.file_path)
-        extracted_date = video_metadata['creation_time']
+
+        if video_metadata:
+            extracted_date = video_metadata['creation_time']
 
         if extracted_date:
             file_info.folder_date = extracted_date[0:10]
