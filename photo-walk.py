@@ -831,7 +831,7 @@ def main():
     print_and_log("="*72)
     print_and_log("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
     print_and_log("-"*72)
-    print_and_log("Nb. of new reference files: ", nb_dest_files)
+    print_and_log("Nb. of files in reference not present in DB: ", nb_dest_files)
     print_and_log("Nb. of new reference PIC files: ", nb_dest_pics)
     print_and_log("Nb. of new reference RAW files: ", nb_dest_raw)
     print_and_log("Nb. of new reference Video files: ", nb_dest_videos)
