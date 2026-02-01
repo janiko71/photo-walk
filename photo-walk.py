@@ -812,6 +812,7 @@ def main():
 
     t_dest_lookup = 0.0
     t_import_dir_lookup = 0.0
+    t_copy_files = 0.0
     nb_dest_files = 0
     nb_dest_raw = 0
     nb_dest_videos = 0
@@ -834,7 +835,7 @@ def main():
         case "rebuild":
             t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = reference_lookup(ctx, reference)
         case "read" | "test" | "import":
-            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = import_dir_lookup(ctx, basepath, cmd)
+            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files = import_dir_lookup(ctx, basepath, cmd)
 
     # Calculate size of all files in DB
     # ---
@@ -861,6 +862,7 @@ def main():
     else:
         import_duration_label = "Import sources scan duration: "
     print_and_log(ctx, "{}{:.2f} sec.".format(import_duration_label, t_import_dir_lookup))
+    print_and_log(ctx, "File copy duration: {:.2f} sec.".format(t_copy_files))
     print_and_log(ctx, "-"*72)
     print_and_log(ctx, "Files found in import sources: ", nb_import_dir_files)
     print_and_log(ctx, "PIC files in import sources: ", nb_import_dir_pics)
