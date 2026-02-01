@@ -56,11 +56,12 @@ name=photo-walk.db
 
 ## Notes
 
-- Formats supportes: images (jpg, png, tif, webp...), RAW (arw, cr2, nef, raf...) et videos (mov, mp4, avi, ...).
-- Le hash SHA-256 est utilise pour identifier un fichier, independamment de son nom ou de son emplacement.
-- Les logs sont ecrits dans `./log/` avec un fichier par execution.
+- Supported formats: images (jpg, png, tif, webp...), RAW (arw, cr2, nef, raf...) and videos (mov, mp4, avi, ...).
+- SHA-256 hash is used to identify a file, independent of its name or location.
+- Logs are written to `./log/` with one file per run.
+- The `misc/` folder contains scripts or archived versions not used in the main flow.
 
-## Exemple de flux
+## Example flow
 
 ```
 [Sources] ---> read ---> (liste des fichiers a importer)
