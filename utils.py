@@ -5,7 +5,7 @@ import time
 #  Global constants (default)
 #
 
-SUPPORTED_COMMANDS = ["reference", "read-import", "testcopy", "import"]
+SUPPORTED_COMMANDS = ["rebuild", "read", "test", "import"]
 
 
 
@@ -131,16 +131,24 @@ def check_arguments():
 
     parser = argparse.ArgumentParser(description='Photowalk can use arguments. More information at ...')
 
-    help_str = ""
-    for arg_elem in SUPPORTED_COMMANDS:
-        help_str = help_str + arg_elem + ", "
-    help_str = help_str[:-2]
+    help_str = ", ".join(SUPPORTED_COMMANDS)
+
+    command_help = (
+        "rebuild: read reference folder(s) and add to DB; "
+        "read: scan import sources and show what would be copied; "
+        "test: copy to test folder without DB updates; "
+        "import: copy to reference and add to DB"
+    )
 
     #
     # Declaring allowed parameters
     #
 
-    parser.add_argument('command', type=str, help="Must be one or many within this list: " + help_str)
+    parser.add_argument(
+        'command',
+        type=str,
+        help="Must be one of: {}. {}".format(help_str, command_help),
+    )
     
     args = parser.parse_args()
 

@@ -20,6 +20,7 @@ import logging
 import shutil
 import configparser
 import ffmpeg
+from dataclasses import dataclass
 
 
 from datetime import datetime
@@ -62,10 +63,6 @@ config.read('config.ini', encoding='utf-8')
 
 # Some DB variables
 db = config['db']['name']
-global cnx, nb_db_updates, nb_db_records
-cnx = None
-nb_db_updates = 0
-nb_db_records = 0
 COMMIT_INTERVAL = 100
 
 
@@ -115,7 +112,15 @@ global last_file
 last_path = None
 last_file = None
 
-global nb_files_copied, size_files_copied
+@dataclass
+class AppContext:
+    config: configparser.ConfigParser
+    logger: logging.Logger
+    cnx: sqlite3.Connection | None = None
+    nb_db_updates: int = 0
+    nb_db_records: int = 0
+    nb_files_copied: int = 0
+    size_files_copied: int = 0
 
 
 #    ====================================================================
@@ -132,13 +137,13 @@ def exit_handler(signum, frame):
 
 
 # ----------------------------
-def print_and_log(str1, str2=None, str3=None):
+def print_and_log(ctx, str1, str2=None, str3=None):
 # ----------------------------
 
     str_resultat = str1 + (str(str2) if str2 is not None else "") + (str(str3) if str3 is not None else "")
 
     print(str_resultat)
-    logger.info(str_resultat)
+    ctx.logger.info(str_resultat)
 
     return
 
@@ -149,7 +154,7 @@ def print_and_log(str1, str2=None, str3=None):
 #    ====================================================================
 #
 
-def db_connect(db):
+def db_connect(ctx, db):
 
     """
 
@@ -161,8 +166,7 @@ def db_connect(db):
         
     """
 
-    global cnx, nb_db_records
-    cnx = sqlite3.connect(db)
+    ctx.cnx = sqlite3.connect(db)
 
     #
     # ---> Existing DB or not?
@@ -170,13 +174,13 @@ def db_connect(db):
 
     try:
 
-        res = cnx.execute("SELECT count(fid) FROM filelist").fetchone()
-        nb_db_records = res[0] 
+        res = ctx.cnx.execute("SELECT count(fid) FROM filelist").fetchone()
+        ctx.nb_db_records = res[0]
 
     except sqlite3.OperationalError as e:
 
         # No, there's no existing database, so we create one
-        db_create(db)
+        db_create(ctx, db)
 
     return 
 
@@ -188,7 +192,7 @@ def db_connect(db):
 #    ====================================================================
 #
 
-def db_create(db):
+def db_create(ctx, db):
 
     """
 
@@ -199,15 +203,14 @@ def db_create(db):
 
     """
 
-    global cnx
     #cnx = sqlite3.connect(db)
-    logger.info("Creating tables on database %s", db)
+    ctx.logger.info("Creating tables on database %s", db)
 
     #
     # ---> Let's create the table used for storing files information
     #
     
-    cnx.execute("CREATE TABLE filelist (\
+    ctx.cnx.execute("CREATE TABLE filelist (\
                     fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
                     filename TINYTEXT, \
                     file_extension CHAR(30), \
@@ -228,17 +231,17 @@ def db_create(db):
                     trt_date TEXT, \
                     walk_type CHAR(10)) \
                 ")
-    logger.info("Filetable successfully created")
+    ctx.logger.info("Filetable successfully created")
 
     # ---> Some useful indexes to speed up the processing
 
-    cnx.execute("CREATE INDEX index_original_path ON filelist (original_path, filename)")
-    cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
-    cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
-    cnx.execute("CREATE INDEX index_file_path ON filelist (file_path)")
-    logger.info("Indexes successfully created")
+    ctx.cnx.execute("CREATE INDEX index_original_path ON filelist (original_path, filename)")
+    ctx.cnx.execute("CREATE INDEX index_exif_hash ON filelist (exif_hash)")
+    ctx.cnx.execute("CREATE INDEX index_file_hash ON filelist (file_hash)")
+    ctx.cnx.execute("CREATE INDEX index_file_path ON filelist (file_path)")
+    ctx.logger.info("Indexes successfully created")
 
-    cnx.commit()
+    ctx.cnx.commit()
 
     return 
 
@@ -249,12 +252,10 @@ def db_create(db):
 #    ====================================================================
 #
 
-def walk_commit():
+def walk_commit(ctx):
 
-    global cnx, nb_db_updates
-
-    if (nb_db_updates % COMMIT_INTERVAL == 0):
-        cnx.commit()
+    if (ctx.nb_db_updates % COMMIT_INTERVAL == 0):
+        ctx.cnx.commit()
     return
 
 
@@ -264,9 +265,7 @@ def walk_commit():
 #    ====================================================================
 #
 
-def insert_into_DB(file_info):
-
-    global cnx, nb_db_updates
+def insert_into_DB(ctx, file_info):
 
     columns = [
         "filename",
@@ -290,7 +289,7 @@ def insert_into_DB(file_info):
     ]
 
     # Check (again) if filepath is existing. If we're here, it shouldn't exist
-    res = cnx.execute("SELECT 1 FROM filelist WHERE file_path=?", (file_info.file_path,))
+    res = ctx.cnx.execute("SELECT 1 FROM filelist WHERE file_path=?", (file_info.file_path,))
     existing_file = res.fetchone()
 
     if not existing_file:
@@ -299,11 +298,11 @@ def insert_into_DB(file_info):
         #            (?, ?")
         requete_insertion = f'''INSERT INTO filelist ({', '.join(columns)}) VALUES ({', '.join(['?' for _ in columns])})'''
         try:
-            cnx.execute(requete_insertion, tuple(getattr(file_info, column) for column in columns))
-            nb_db_updates = nb_db_updates + 1
-            walk_commit()
+            ctx.cnx.execute(requete_insertion, tuple(getattr(file_info, column) for column in columns))
+            ctx.nb_db_updates = ctx.nb_db_updates + 1
+            walk_commit(ctx)
         except sqlite3.IntegrityError as ie:
-            logger.warning(f"Already existing file hash for {file_info.file_path} (ie)")
+            ctx.logger.warning(f"Already existing file hash for {file_info.file_path} (ie)")
 
     return
 
@@ -345,7 +344,7 @@ def get_video_metadata(file_path):
 #    ====================================================================
 #
 
-def get_file_info(dir_path, file_name):
+def get_file_info(ctx, dir_path, file_name):
 
     """
         Gets information for the file 
@@ -397,7 +396,7 @@ def get_file_info(dir_path, file_name):
                     exif_info = ""
                     for tag, value in tags.items():
                         exif_info += f"{tag}:{value}\n"
-                    logger.debug(exif_info)
+                    ctx.logger.debug(exif_info)
                     # Get EXIF hash
                     sha256_hasher = hashlib.sha256()
                     sha256_hasher.update(exif_info.encode('utf-8'))
@@ -411,7 +410,7 @@ def get_file_info(dir_path, file_name):
 
             except Exception as e:
                 
-                logger.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e})")
+                ctx.logger.error(f"Unknown error while retireving EXIF infos for {file_info.file_path} ({e})")
                 # We need a folder date, even if EXIT was not readable
                 file_info.folder_date = file_info.creation_date_short
             
@@ -504,10 +503,7 @@ def extract_date_from_filename(filename):
 #     OS Copy file function
 #    ====================================================================
 #
-def os_file_copy(filepath, dest, cmd, size):
-
-    global nb_files_copied
-    global size_files_copied
+def os_file_copy(ctx, filepath, dest, cmd, size):
 
     # Check reference directory
     reference_file_path = os.path.join(dest, os.path.basename(filepath))
@@ -517,25 +513,25 @@ def os_file_copy(filepath, dest, cmd, size):
 
     if os.path.exists(reference_file_path):
 
-        logger.info(f"File {reference_file_path} already exists.")
+        ctx.logger.info(f"File {reference_file_path} already exists.")
 
     else:
 
         try:
             # OS copy
             shutil.copy2(filepath, dest)
-            nb_files_copied = nb_files_copied + 1
-            size_files_copied = size_files_copied + size
-            if cmd == "testcopy":
-                logger.info("%s copied in test mode (in %s)", filepath, dest)
+            ctx.nb_files_copied = ctx.nb_files_copied + 1
+            ctx.size_files_copied = ctx.size_files_copied + size
+            if cmd == "test":
+                ctx.logger.info("%s copied in test mode (in %s)", filepath, dest)
             elif cmd == "import":
-                logger.info("%s imported in %s", filepath, dest)    
+                ctx.logger.info("%s imported in %s", filepath, dest)
         except FileNotFoundError:
-            logger.error("%s doesn't exist (import directory)", filepath)
+            ctx.logger.error("%s doesn't exist (import directory)", filepath)
         except PermissionError:
-            logger.error(f"Wrong permissions for copying into {dest}")
+            ctx.logger.error(f"Wrong permissions for copying into {dest}")
         except Exception as e:
-            logger.error(f"Unknown error while copying {filepath} ({e})")
+            ctx.logger.error(f"Unknown error while copying {filepath} ({e})")
 
     return 
 
@@ -547,9 +543,7 @@ def os_file_copy(filepath, dest, cmd, size):
 #    ====================================================================
 #
 
-def copy_file(file_path, dest, cmd, folder_date, size):
-
-    global size_files_copied
+def copy_file(ctx, file_path, dest, cmd, folder_date, size):
         
     # Create directory and subdirectories if not existing
     # ---
@@ -569,7 +563,7 @@ def copy_file(file_path, dest, cmd, folder_date, size):
     if not os.path.exists(final_dest_dir):
         os.makedirs(final_dest_dir, exist_ok=True)
 
-    os_file_copy(file_path, final_dest_dir, cmd, size)
+    os_file_copy(ctx, file_path, final_dest_dir, cmd, size)
 
     return 
 
@@ -581,9 +575,9 @@ def copy_file(file_path, dest, cmd, folder_date, size):
 #    ====================================================================
 #
 
-def read_reference(reference):
+def read_reference(ctx, reference):
 
-    logger.info("Considering %s as reference directory", reference)
+    ctx.logger.info("Considering %s as reference directory", reference)
 
     nb_dest_files = 0
     nb_dest_pics = 0
@@ -604,12 +598,12 @@ def read_reference(reference):
 
                 # Check if filepath is existing in DB. If yes, we skip it. 
                 reference_file_path = os.path.join(dir_path, file_name)
-                res = cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
+                res = ctx.cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
                 existing_file = res.fetchone()
                         
                 if not existing_file:
 
-                    file_info = get_file_info(dir_path, file_name)
+                    file_info = get_file_info(ctx, dir_path, file_name)
                     nb_dest_files = nb_dest_files + 1
 
                     match file_info.walk_type:
@@ -622,7 +616,7 @@ def read_reference(reference):
 
                     if file_info.walk_type != "unknown":
 
-                        insert_into_DB(file_info)
+                        insert_into_DB(ctx, file_info)
 
 
     return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
@@ -634,7 +628,7 @@ def read_reference(reference):
 #    ====================================================================
 #
 
-def read_import_dir(basepath_list, cmd):
+def read_import_dir(ctx, basepath_list, cmd):
 
     nb_import_dir_files = 0
     nb_import_dir_pics = 0
@@ -653,13 +647,13 @@ def read_import_dir(basepath_list, cmd):
         if line[0] != '':
 
             basepath = line[0]
-            logger.info("Considering %s as import directory", basepath)
+            ctx.logger.info("Considering %s as import directory", basepath)
 
             for dir_path, _, files in os.walk(basepath, topdown=True):
 
                 for file_name in files:
 
-                    file_info = get_file_info(dir_path, file_name)
+                    file_info = get_file_info(ctx, dir_path, file_name)
 
                     nb_import_dir_files = nb_import_dir_files + 1
 
@@ -674,13 +668,13 @@ def read_import_dir(basepath_list, cmd):
                     if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
 
                         # Check if the file is already in the DB
-                        cursor = cnx.cursor()
+                        cursor = ctx.cnx.cursor()
                         cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
                         res = cursor.fetchone()
 
                         if res:
                             # existing
-                            logger.info("%s existing in DB", file_info.file_path)
+                            ctx.logger.info("%s existing in DB", file_info.file_path)
                         else:
                             # Counting files to be copied/imported
                             match file_info.walk_type:
@@ -691,14 +685,14 @@ def read_import_dir(basepath_list, cmd):
                                 case "VIDEO":
                                     nb_videos_to_import = nb_videos_to_import + 1
                             # doing what has to be done
-                            if cmd == "testcopy":
-                                copy_file(file_info.file_path, config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
+                            if cmd == "test":
+                                copy_file(ctx, file_info.file_path, ctx.config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
                             elif cmd == "import":
-                                copy_file(file_info.file_path, config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
+                                copy_file(ctx, file_info.file_path, ctx.config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
                                 file_info.original_path = dir_path
-                                insert_into_DB(file_info)
-                            elif cmd == "read-import":
-                                logger.info("%s would have been copied", file_info.file_path)
+                                insert_into_DB(ctx, file_info)
+                            elif cmd == "read":
+                                ctx.logger.info("%s would have been copied", file_info.file_path)
 
                     pass
         
@@ -711,7 +705,7 @@ def read_import_dir(basepath_list, cmd):
 #    ====================================================================
 #
 
-def import_dir_lookup(basepath_list, cmd):
+def import_dir_lookup(ctx, basepath_list, cmd):
 
     """
         Args:
@@ -727,7 +721,7 @@ def import_dir_lookup(basepath_list, cmd):
 
     t0 = time.time()
 
-    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = read_import_dir(basepath_list, cmd)
+    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = read_import_dir(ctx, basepath_list, cmd)
 
     t_import_dir_lookup = time.time() - t0
 
@@ -740,7 +734,7 @@ def import_dir_lookup(basepath_list, cmd):
 #    ====================================================================
 #
 
-def reference_lookup(reference):
+def reference_lookup(ctx, reference):
 
     """
         Args:
@@ -756,7 +750,7 @@ def reference_lookup(reference):
 
     t0 = time.time()
 
-    nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = read_reference(reference)
+    nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = read_reference(ctx, reference)
 
     t_dest_lookup = time.time() - t0
 
@@ -798,7 +792,8 @@ def main():
     # ---> DB connection
     #
 
-    db_connect(db)
+    ctx = AppContext(config=config, logger=logger)
+    db_connect(ctx, db)
 
     #
     # ---> Catch the exit signal to commit the database with last checkpoint
@@ -810,8 +805,6 @@ def main():
     # ---> Infos to display
     #
 
-    global nb_files_copied, size_files_copied
-                
     t_dest_lookup = 0.0
     t_import_dir_lookup = 0.0
     nb_dest_files = 0
@@ -825,67 +818,74 @@ def main():
     nb_pics_to_import = 0
     nb_raw_to_import = 0 
     nb_videos_to_import = 0
-    nb_files_copied = 0
-    size_files_copied = 0
+    ctx.nb_files_copied = 0
+    ctx.size_files_copied = 0
 
 
     # Looking for files
     # ---
 
     match cmd:
-        case "reference":
-            t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = reference_lookup(reference)
-        case "read-import" | "testcopy" | "import":
-            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = import_dir_lookup(basepath, cmd)
+        case "rebuild":
+            t_dest_lookup, nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos = reference_lookup(ctx, reference)
+        case "read" | "test" | "import":
+            t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = import_dir_lookup(ctx, basepath, cmd)
 
     # Calculate size of all files in DB
     # ---
 
-    res = cnx.execute("select sum(size) FROM filelist")
+    res = ctx.cnx.execute("select sum(size) FROM filelist")
     size = res.fetchone()[0]
     if size is None:
         size = 0
 
-    print_and_log("")
-    print_and_log("="*72)
-    print_and_log("Nb. of records in DB, before running: ", nb_db_records)
-    print_and_log("="*72)
-    print_and_log("Reference lookup duration: {:.2f} sec.".format(t_dest_lookup))
-    print_and_log("-"*72)
-    print_and_log("Nb. of files in reference not present in DB: ", nb_dest_files)
-    print_and_log("Nb. of new reference PIC files: ", nb_dest_pics)
-    print_and_log("Nb. of new reference RAW files: ", nb_dest_raw)
-    print_and_log("Nb. of new reference Video files: ", nb_dest_videos)
-    print_and_log("="*72)
-    print_and_log("Import directories lookup and copy duration: {:.2f} sec.".format(t_import_dir_lookup))
-    print_and_log("-"*72)
-    print_and_log("Nb. of import directories files: ", nb_import_dir_files)
-    print_and_log("Nb. of PIC files in import directories: ", nb_import_dir_pics)
-    print_and_log("Nb. of RAW files in import directories: ", nb_import_dir_raw)
-    print_and_log("Nb. of Video files in import directories: ", nb_import_dir_videos)
-    print_and_log("-"*72)
-    print_and_log("Nb. of import directories files: ", nb_pics_to_import)
-    print_and_log("Nb. of PIC files to import (not present): ", nb_pics_to_import)
-    print_and_log("Nb. of RAW files to import (not present): ", nb_raw_to_import)
-    print_and_log("Nb. of Video files to import (not present): ", nb_videos_to_import)
-    print_and_log("="*72)
-    print_and_log("Nb. of DB updates: ", nb_db_updates)
-    print_and_log("-"*72)
-    print_and_log("Size of all files in DB: {}".format(utils.humanbytes(size)))
-    print_and_log("="*72)
-    if cmd == "import":
-        print_and_log("Nb. of files copied: ", nb_files_copied)
+    print_and_log(ctx, "")
+    print_and_log(ctx, "="*72)
+    print_and_log(ctx, "Command: ", cmd)
+    print_and_log(ctx, "DB records before run: ", ctx.nb_db_records)
+    print_and_log(ctx, "="*72)
+    print_and_log(ctx, "Reference scan duration: {:.2f} sec.".format(t_dest_lookup))
+    print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "New files in reference not in DB: ", nb_dest_files)
+    print_and_log(ctx, "New reference PIC files: ", nb_dest_pics)
+    print_and_log(ctx, "New reference RAW files: ", nb_dest_raw)
+    print_and_log(ctx, "New reference Video files: ", nb_dest_videos)
+    print_and_log(ctx, "="*72)
+    if cmd in ["import", "test"]:
+        import_duration_label = "Import sources scan/copy duration: "
     else:
-        print_and_log("Nb. of files copied: ", nb_files_copied, " (in test mode)")
-    print_and_log("-"*72)
-    print_and_log("Size of files copied: {}".format(utils.humanbytes(size_files_copied)))
-    print_and_log("="*72)
+        import_duration_label = "Import sources scan duration: "
+    print_and_log(ctx, "{}{:.2f} sec.".format(import_duration_label, t_import_dir_lookup))
+    print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "Files found in import sources: ", nb_import_dir_files)
+    print_and_log(ctx, "PIC files in import sources: ", nb_import_dir_pics)
+    print_and_log(ctx, "RAW files in import sources: ", nb_import_dir_raw)
+    print_and_log(ctx, "Video files in import sources: ", nb_import_dir_videos)
+    print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "Files to import (not present): ", nb_pics_to_import + nb_raw_to_import + nb_videos_to_import)
+    print_and_log(ctx, "PIC files to import (not present): ", nb_pics_to_import)
+    print_and_log(ctx, "RAW files to import (not present): ", nb_raw_to_import)
+    print_and_log(ctx, "Video files to import (not present): ", nb_videos_to_import)
+    print_and_log(ctx, "="*72)
+    print_and_log(ctx, "DB updates during run: ", ctx.nb_db_updates)
+    print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "Total size of all files in DB: {}".format(utils.humanbytes(size)))
+    print_and_log(ctx, "="*72)
+    if cmd == "import":
+        print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied)
+    elif cmd == "test":
+        print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied, " (test mode)")
+    else:
+        print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied, " (no copy)")
+    print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "Size of files copied: {}".format(utils.humanbytes(ctx.size_files_copied)))
+    print_and_log(ctx, "="*72)
 
     # Closing database
     # ---
 
-    cnx.commit()
-    cnx.close()
+    ctx.cnx.commit()
+    ctx.cnx.close()
 
     logger.info("Normal termination")
 

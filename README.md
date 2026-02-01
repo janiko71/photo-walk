@@ -1,23 +1,46 @@
 # photo-walk
 
-Based on https://github.com/janiko71/sd-transfert and https://github.com/janiko71/duplicates-walk.
+Based on:
+- https://github.com/janiko71/sd-transfert
+- https://github.com/janiko71/duplicates-walk
 
-The idea is to place all your images (images or video files actually) into a "reference" folder, containing imported images without duplicates. The comparison is not made with the files present in the "reference" folder but with a historical database which keeps track of all the images already imported.
+## Overview
 
-For what? To prevent the import of files that you intentionally deleted. Then you can imports pics, delete the unneeded ones, and re-import again pictures into the target folder if you don't remember if it was already done or not. 
+Photo-walk builds a **reference library** for photos and videos, without duplicates.  
+It does **not** compare with the files currently present in the reference folder.  
+Instead, it uses a **historical database** of all imported files.
 
-## Actions (argument)
+Why? If you import files, delete the bad ones, then re-import later, you still want to avoid bringing in duplicates.  
+This keeps your reference library clean, even across multiple imports and cleanups.
 
-- 'reference' : Reads all the files in the reference (destination) folder(s) and add them into the DB.  
-- 'read-import' : Only reads the folders that contains files to be imported and lists what would be copied
-- 'testcopy' : Copies the files in a false target folder, does not add them into the DB
-- 'import' : Imports the files, puts them into the DB
+## How it works (short version)
 
-After 'read', files may exists in the DB without being copied. When copying, check if it exists and log. There's a log file for every import.
+- The DB stores hashes and metadata of everything you already imported.
+- Any file, anywhere, is re-checked by hashing.
+- If the hash is already in the DB, it is skipped.
 
-## Configuration file example (name=config.ini)
+## Commands
 
+- `rebuild` : read all files from the reference folder(s) and add them into the DB  
+- `read` : scan import sources and **show** what would be copied  
+- `test` : copy to a test folder (no DB updates)  
+- `import` : copy to reference + add to DB
+
+After `read`, files may exist in the DB without being copied.  
+Each run produces a log file.
+
+## Typical usage
+
+```bash
+python photo-walk.py rebuild
+python photo-walk.py read
+python photo-walk.py test
+python photo-walk.py import
 ```
+
+## Configuration (config.ini)
+
+```ini
 [directories]
 reference=
 import_dirs=
@@ -29,4 +52,22 @@ file=app.log
 
 [db]
 name=photo-walk.db
+```
+
+## Notes
+
+- Formats supportes: images (jpg, png, tif, webp...), RAW (arw, cr2, nef, raf...) et videos (mov, mp4, avi, ...).
+- Le hash SHA-256 est utilise pour identifier un fichier, independamment de son nom ou de son emplacement.
+- Les logs sont ecrits dans `./log/` avec un fichier par execution.
+
+## Exemple de flux
+
+```
+[Sources] ---> read ---> (liste des fichiers a importer)
+     |
+     +------> test  ---> (copie en dossier de test, sans DB)
+     |
+     +------> import ---> [Reference] + [DB]
+
+rebuild ---> [Reference] ---> (ajout en DB)
 ```
