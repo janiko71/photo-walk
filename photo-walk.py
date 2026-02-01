@@ -1,9 +1,23 @@
 #
-# ================================= 
-# Log into a DB all imported files
-# =================================
+# ===========================================================================================
+#  photo-walk.py
+# ===========================================================================================
+#  Purpose:
+#   - Build and maintain a historical DB of imported photos/videos
+#   - Prevent duplicates by hashing every file, regardless of name or location
 #
+#  Main commands:
+#   - rebuild : scan reference folder(s) and add everything to the DB
+#   - read    : scan import sources and report what would be copied
+#   - test    : copy to test folder, no DB updates
+#   - import  : copy to reference folder and add to DB
 #
+#  Key ideas:
+#   - The DB is the source of truth (not the current reference folder content)
+#   - Hashing (SHA-256) is required for robust duplicate detection
+#   - Performance can be tuned with [performance] in config.ini
+#
+# ===========================================================================================
 
 import mimetypes
 import utils
@@ -131,6 +145,10 @@ class AppContext:
 #    ====================================================================
 #     Exit when CTRL-C
 #    ====================================================================
+#
+#    -------------------------------------------------------------------------------------------
+#     Handle SIGINT to exit cleanly (future: commit/checkpoint support)
+#    -------------------------------------------------------------------------------------------
 
 def exit_handler(signum, frame):
 
@@ -141,9 +159,14 @@ def exit_handler(signum, frame):
 
 
 
-# ----------------------------
+#    ====================================================================
+#     Print and log
+#    ====================================================================
+#
+#    -------------------------------------------------------------------------------------------
+#     Print to stdout and write the same line to the log file
+#    -------------------------------------------------------------------------------------------
 def print_and_log(ctx, str1, str2=None, str3=None):
-# ----------------------------
 
     str_resultat = str1 + (str(str2) if str2 is not None else "") + (str(str3) if str3 is not None else "")
 
@@ -155,10 +178,12 @@ def print_and_log(ctx, str1, str2=None, str3=None):
 
 #
 #    ====================================================================
-#     Database connexion
+#     Database connection
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Open the SQLite DB and create tables if missing
+#    -------------------------------------------------------------------------------------------
 def db_connect(ctx, db):
 
     """
@@ -191,12 +216,13 @@ def db_connect(ctx, db):
 
 
 
-#
 #    ====================================================================
 #     Database creation
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Create tables and indexes for the file list
+#    -------------------------------------------------------------------------------------------
 def db_create(ctx, db):
 
     """
@@ -251,12 +277,13 @@ def db_create(ctx, db):
     return 
 
 
-#
 #    ====================================================================
-#     Commits DB if needed
+#     Commit DB if needed
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Commit every COMMIT_INTERVAL inserts to reduce I/O
+#    -------------------------------------------------------------------------------------------
 def walk_commit(ctx):
 
     if (ctx.nb_db_updates % COMMIT_INTERVAL == 0):
@@ -264,12 +291,13 @@ def walk_commit(ctx):
     return
 
 
-#
 #    ====================================================================
-#     Inserting file informations into DB, if needed
+#     Insert file info into DB (if not already present)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Insert one file record, guarding against duplicates
+#    -------------------------------------------------------------------------------------------
 def insert_into_DB(ctx, file_info):
 
     columns = [
@@ -312,12 +340,13 @@ def insert_into_DB(ctx, file_info):
     return
 
 
-#
 #    ====================================================================
-#     Get video file information
+#     Get video file metadata (ffmpeg probe)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Extract container and stream fields used for timestamps and size
+#    -------------------------------------------------------------------------------------------
 def get_video_metadata(file_path):
 
     try:
@@ -343,12 +372,13 @@ def get_video_metadata(file_path):
 
     
 
-#
 #    ====================================================================
-#     Get file information
+#     Extract all file infos (metadata + hash)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Build a MyFileInfo with dates, EXIF/video metadata, and SHA-256 hash
+#    -------------------------------------------------------------------------------------------
 def get_file_info(ctx, dir_path, file_name):
 
     """
@@ -473,7 +503,9 @@ def get_file_info(ctx, dir_path, file_name):
 #     Extract date in the name of the file
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Extract date from filename (best effort)
+#    -------------------------------------------------------------------------------------------
 def extract_date_from_filename(filename):
 
     # Define a regex pattern to capture dates in various formats
@@ -503,11 +535,13 @@ def extract_date_from_filename(filename):
 
 
 
-#
 #    ====================================================================
-#     OS Copy file function
+#     OS copy helper (single file)
 #    ====================================================================
 #
+#    -------------------------------------------------------------------------------------------
+#     Copy one file and update counters/logs
+#    -------------------------------------------------------------------------------------------
 def os_file_copy(ctx, filepath, dest, cmd, size):
 
     # Check reference directory
@@ -542,12 +576,13 @@ def os_file_copy(ctx, filepath, dest, cmd, size):
 
 
 
-#
 #    ====================================================================
-#     Copy file function, depending on the line command
+#     Copy file into YYYY/MM/DD folders
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Create date-based folders then copy the file
+#    -------------------------------------------------------------------------------------------
 def copy_file(ctx, file_path, dest, cmd, folder_date, size):
         
     # Create directory and subdirectories if not existing
@@ -574,12 +609,13 @@ def copy_file(ctx, file_path, dest, cmd, folder_date, size):
 
 
 
-#
 #    ====================================================================
-#     Directory browsing (for reference)
+#     Scan reference directory (rebuild DB)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Hash and record files from the reference directory into the DB
+#    -------------------------------------------------------------------------------------------
 def read_reference(ctx, reference):
 
     ctx.logger.info("Considering %s as reference directory", reference)
@@ -648,12 +684,13 @@ def read_reference(ctx, reference):
     return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
 
 
-#
 #    ====================================================================
-#     Directory browsing (for multiple import_dir paths)
+#     Scan import sources + compute what to do
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Hash files from import sources and decide copy/import actions
+#    -------------------------------------------------------------------------------------------
 def read_import_dir(ctx, basepath_list, cmd):
 
     nb_import_dir_files = 0
@@ -782,12 +819,13 @@ def read_import_dir(ctx, basepath_list, cmd):
     return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
-#
 #    ====================================================================
-#     Directory calculation (for all files in many directories)
+#     Import sources lookup wrapper
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Time the import scan and return counters
+#    -------------------------------------------------------------------------------------------
 def import_dir_lookup(ctx, basepath_list, cmd):
 
     """
@@ -811,12 +849,13 @@ def import_dir_lookup(ctx, basepath_list, cmd):
     return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
-#
 #    ====================================================================
-#     Directory calculation (for all files in many directories)
+#     Reference lookup wrapper
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Time the reference scan and return counters
+#    -------------------------------------------------------------------------------------------
 def reference_lookup(ctx, reference):
 
     """
@@ -841,14 +880,13 @@ def reference_lookup(ctx, reference):
 
 
 
-#
+#    ====================================================================
+#     Main
 #    ====================================================================
 #
-#     Main part
-#
-#    ====================================================================
-#
-
+#    -------------------------------------------------------------------------------------------
+#     Parse args, run selected command, and print summary
+#    -------------------------------------------------------------------------------------------
 def main():
 
     # Colorama init
