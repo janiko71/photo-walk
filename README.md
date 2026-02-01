@@ -40,6 +40,12 @@ python photo-walk.py import
 
 ## Configuration (config.ini)
 
+Copy the example file and adjust the paths:
+
+```bash
+cp config.example.ini config.ini
+```
+
 ```ini
 [directories]
 reference=
@@ -52,6 +58,12 @@ file=app.log
 
 [db]
 name=photo-walk.db
+
+[performance]
+# Bytes per chunk when hashing files
+hash_chunk_size=1048576
+# Number of worker threads for file metadata/hash
+max_workers=4
 ```
 
 ## Notes
@@ -60,6 +72,7 @@ name=photo-walk.db
 - SHA-256 hash is used to identify a file, independent of its name or location.
 - Logs are written to `./log/` with one file per run.
 - The `misc/` folder contains scripts or archived versions not used in the main flow.
+- Performance tuning is optional; if `[performance]` is missing, defaults are used.
 
 ## Example flow
 
