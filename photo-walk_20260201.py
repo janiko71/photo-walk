@@ -268,27 +268,6 @@ def insert_into_DB(file_info):
 
     global cnx, nb_db_updates
 
-    columns = [
-        "filename",
-        "file_extension",
-        "mime_type",
-        "original_path",
-        "dest_path",
-        "file_path",
-        "creation_date",
-        "creation_date_short",
-        "modify_date",
-        "filename_date",
-        "folder_date",
-        "file_hash",
-        "exif_date",
-        "exif_content",
-        "exif_hash",
-        "size",
-        "trt_date",
-        "walk_type",
-    ]
-
     # Check (again) if filepath is existing. If we're here, it shouldn't exist
     res = cnx.execute("SELECT 1 FROM filelist WHERE file_path=?", (file_info.file_path,))
     existing_file = res.fetchone()
@@ -297,9 +276,9 @@ def insert_into_DB(file_info):
         #cnx.execute("INSERT INTO filelist (filename, extension, mime_type, original_path, dest_path, creation_date, creation_date_short, modify_date,\
         #            filename_date, folder_date, file_hash, exif_date, exif_content, exif_hash, size, trt_date, type) VALUES \
         #            (?, ?")
-        requete_insertion = f'''INSERT INTO filelist ({', '.join(columns)}) VALUES ({', '.join(['?' for _ in columns])})'''
+        requete_insertion = f'''INSERT INTO filelist ({', '.join(vars(file_info).keys())}) VALUES ({', '.join(['?' for _ in vars(file_info)])})'''
         try:
-            cnx.execute(requete_insertion, tuple(getattr(file_info, column) for column in columns))
+            cnx.execute(requete_insertion, tuple(vars(file_info).values()))
             nb_db_updates = nb_db_updates + 1
             walk_commit()
         except sqlite3.IntegrityError as ie:
@@ -533,9 +512,9 @@ def os_file_copy(filepath, dest, cmd, size):
         except FileNotFoundError:
             logger.error("%s doesn't exist (import directory)", filepath)
         except PermissionError:
-            logger.error(f"Wrong permissions for copying into {dest}")
+            logger.error("Wrong permissions for copying into {dest}")
         except Exception as e:
-            logger.error(f"Unknown error while copying {filepath} ({e})")
+            logger.error("Unknown error while copying {filepath} ({e}")
 
     return 
 
