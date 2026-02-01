@@ -850,6 +850,7 @@ def main():
     print_and_log(ctx, "Command: ", cmd)
     print_and_log(ctx, "DB records before run: ", ctx.nb_db_records)
     print_and_log(ctx, "="*72)
+    print_and_log(ctx, "REFERENCE (scan)")
     print_and_log(ctx, "Reference scan duration: {:.2f} sec.".format(t_dest_lookup))
     print_and_log(ctx, "-"*72)
     print_and_log(ctx, "New files in reference not in DB: ", nb_dest_files)
@@ -861,14 +862,15 @@ def main():
         import_duration_label = "Import sources scan/copy duration: "
     else:
         import_duration_label = "Import sources scan duration: "
+    print_and_log(ctx, "IMPORT SOURCES (scan)")
     print_and_log(ctx, "{}{:.2f} sec.".format(import_duration_label, t_import_dir_lookup))
-    print_and_log(ctx, "File copy duration: {:.2f} sec.".format(t_copy_files))
     print_and_log(ctx, "-"*72)
     print_and_log(ctx, "Files found in import sources: ", nb_import_dir_files)
     print_and_log(ctx, "PIC files in import sources: ", nb_import_dir_pics)
     print_and_log(ctx, "RAW files in import sources: ", nb_import_dir_raw)
     print_and_log(ctx, "Video files in import sources: ", nb_import_dir_videos)
     print_and_log(ctx, "-"*72)
+    print_and_log(ctx, "IMPORT PLAN")
     print_and_log(ctx, "Files to import (not present): ", nb_pics_to_import + nb_raw_to_import + nb_videos_to_import)
     print_and_log(ctx, "PIC files to import (not present): ", nb_pics_to_import)
     print_and_log(ctx, "RAW files to import (not present): ", nb_raw_to_import)
@@ -878,12 +880,14 @@ def main():
     print_and_log(ctx, "-"*72)
     print_and_log(ctx, "Total size of all files in DB: {}".format(utils.humanbytes(size)))
     print_and_log(ctx, "="*72)
+    print_and_log(ctx, "COPY RESULT")
     if cmd == "import":
         print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied)
     elif cmd == "test":
         print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied, " (test mode)")
     else:
         print_and_log(ctx, "Nb. of files copied: ", ctx.nb_files_copied, " (no copy)")
+    print_and_log(ctx, "File copy duration: {:.2f} sec.".format(t_copy_files))
     print_and_log(ctx, "-"*72)
     print_and_log(ctx, "Size of files copied: {}".format(utils.humanbytes(ctx.size_files_copied)))
     print_and_log(ctx, "="*72)
