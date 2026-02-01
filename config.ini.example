@@ -1,0 +1,17 @@
+[directories]
+reference=
+import_dirs=
+trash=trash
+
+[log]
+level=INFO
+file=app.log
+
+[db]
+name=photo-walk.db
+
+[performance]
+# Bytes per chunk when hashing files
+hash_chunk_size=1048576
+# Number of worker threads for file metadata/hash
+max_workers=4

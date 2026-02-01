@@ -43,7 +43,7 @@ python photo-walk.py import
 Copy the example file and adjust the paths:
 
 ```bash
-cp config.example.ini config.ini
+cp config.ini.example config.ini
 ```
 
 ```ini
