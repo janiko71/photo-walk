@@ -637,6 +637,7 @@ def read_import_dir(ctx, basepath_list, cmd):
     nb_pics_to_import= 0
     nb_raw_to_import = 0
     nb_videos_to_import = 0
+    t_copy_files = 0.0
 
     # Loop over directories 
 
@@ -686,9 +687,13 @@ def read_import_dir(ctx, basepath_list, cmd):
                                     nb_videos_to_import = nb_videos_to_import + 1
                             # doing what has to be done
                             if cmd == "test":
+                                t0_copy = time.time()
                                 copy_file(ctx, file_info.file_path, ctx.config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
+                                t_copy_files = t_copy_files + (time.time() - t0_copy)
                             elif cmd == "import":
+                                t0_copy = time.time()
                                 copy_file(ctx, file_info.file_path, ctx.config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
+                                t_copy_files = t_copy_files + (time.time() - t0_copy)
                                 file_info.original_path = dir_path
                                 insert_into_DB(ctx, file_info)
                             elif cmd == "read":
@@ -696,7 +701,7 @@ def read_import_dir(ctx, basepath_list, cmd):
 
                     pass
         
-    return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import
+    return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
 #
@@ -721,11 +726,11 @@ def import_dir_lookup(ctx, basepath_list, cmd):
 
     t0 = time.time()
 
-    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import = read_import_dir(ctx, basepath_list, cmd)
+    nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files = read_import_dir(ctx, basepath_list, cmd)
 
     t_import_dir_lookup = time.time() - t0
 
-    return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import
+    return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
 #
