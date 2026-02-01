@@ -64,11 +64,11 @@ name=photo-walk.db
 ## Example flow
 
 ```
-[Sources] ---> read ---> (liste des fichiers a importer)
+[Sources] ---> read ---> (list of files to import)
      |
-     +------> test  ---> (copie en dossier de test, sans DB)
+     +------> test  ---> (copy to test folder, no DB update)
      |
      +------> import ---> [Reference] + [DB]
 
-rebuild ---> [Reference] ---> (ajout en DB)
+rebuild ---> [Reference] ---> (add to DB)
 ```
