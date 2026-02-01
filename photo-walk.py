@@ -2,6 +2,9 @@
 # ===========================================================================================
 #  photo-walk.py
 # ===========================================================================================
+#  Version: 2026-02-01
+#  Updated: 2026-02-01
+#
 #  Purpose:
 #   - Build and maintain a historical DB of imported photos/videos
 #   - Prevent duplicates by hashing every file, regardless of name or location
