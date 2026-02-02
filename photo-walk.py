@@ -1,9 +1,26 @@
 #
-# ================================= 
-# Log into a DB all imported files
-# =================================
+# ===========================================================================================
+#  photo-walk.py
+# ===========================================================================================
+#  Version: 2026-02-01
+#  Updated: 2026-02-01
 #
+#  Purpose:
+#   - Build and maintain a historical DB of imported photos/videos
+#   - Prevent duplicates by hashing every file, regardless of name or location
 #
+#  Main commands:
+#   - rebuild : scan reference folder(s) and add everything to the DB
+#   - read    : scan import sources and report what would be copied
+#   - test    : copy to test folder, no DB updates
+#   - import  : copy to reference folder and add to DB
+#
+#  Key ideas:
+#   - The DB is the source of truth (not the current reference folder content)
+#   - Hashing (SHA-256) is required for robust duplicate detection
+#   - Performance can be tuned with [performance] in config.ini
+#
+# ===========================================================================================
 
 import mimetypes
 import utils
@@ -20,6 +37,7 @@ import logging
 import shutil
 import configparser
 import ffmpeg
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 
@@ -64,6 +82,8 @@ config.read('config.ini', encoding='utf-8')
 # Some DB variables
 db = config['db']['name']
 COMMIT_INTERVAL = 100
+DEFAULT_HASH_CHUNK_SIZE = 1024 * 1024
+DEFAULT_MAX_WORKERS = max(1, (os.cpu_count() or 4))
 
 
 # -------------------------------------------
@@ -121,11 +141,17 @@ class AppContext:
     nb_db_records: int = 0
     nb_files_copied: int = 0
     size_files_copied: int = 0
+    hash_chunk_size: int = DEFAULT_HASH_CHUNK_SIZE
+    max_workers: int = DEFAULT_MAX_WORKERS
 
 
 #    ====================================================================
 #     Exit when CTRL-C
 #    ====================================================================
+#
+#    -------------------------------------------------------------------------------------------
+#     Handle SIGINT to exit cleanly (future: commit/checkpoint support)
+#    -------------------------------------------------------------------------------------------
 
 def exit_handler(signum, frame):
 
@@ -136,9 +162,14 @@ def exit_handler(signum, frame):
 
 
 
-# ----------------------------
+#    ====================================================================
+#     Print and log
+#    ====================================================================
+#
+#    -------------------------------------------------------------------------------------------
+#     Print to stdout and write the same line to the log file
+#    -------------------------------------------------------------------------------------------
 def print_and_log(ctx, str1, str2=None, str3=None):
-# ----------------------------
 
     str_resultat = str1 + (str(str2) if str2 is not None else "") + (str(str3) if str3 is not None else "")
 
@@ -150,10 +181,12 @@ def print_and_log(ctx, str1, str2=None, str3=None):
 
 #
 #    ====================================================================
-#     Database connexion
+#     Database connection
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Open the SQLite DB and create tables if missing
+#    -------------------------------------------------------------------------------------------
 def db_connect(ctx, db):
 
     """
@@ -186,12 +219,13 @@ def db_connect(ctx, db):
 
 
 
-#
 #    ====================================================================
 #     Database creation
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Create tables and indexes for the file list
+#    -------------------------------------------------------------------------------------------
 def db_create(ctx, db):
 
     """
@@ -246,12 +280,13 @@ def db_create(ctx, db):
     return 
 
 
-#
 #    ====================================================================
-#     Commits DB if needed
+#     Commit DB if needed
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Commit every COMMIT_INTERVAL inserts to reduce I/O
+#    -------------------------------------------------------------------------------------------
 def walk_commit(ctx):
 
     if (ctx.nb_db_updates % COMMIT_INTERVAL == 0):
@@ -259,12 +294,13 @@ def walk_commit(ctx):
     return
 
 
-#
 #    ====================================================================
-#     Inserting file informations into DB, if needed
+#     Insert file info into DB (if not already present)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Insert one file record, guarding against duplicates
+#    -------------------------------------------------------------------------------------------
 def insert_into_DB(ctx, file_info):
 
     columns = [
@@ -307,12 +343,13 @@ def insert_into_DB(ctx, file_info):
     return
 
 
-#
 #    ====================================================================
-#     Get video file information
+#     Get video file metadata (ffmpeg probe)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Extract container and stream fields used for timestamps and size
+#    -------------------------------------------------------------------------------------------
 def get_video_metadata(file_path):
 
     try:
@@ -338,12 +375,13 @@ def get_video_metadata(file_path):
 
     
 
-#
 #    ====================================================================
-#     Get file information
+#     Extract all file infos (metadata + hash)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Build a MyFileInfo with dates, EXIF/video metadata, and SHA-256 hash
+#    -------------------------------------------------------------------------------------------
 def get_file_info(ctx, dir_path, file_name):
 
     """
@@ -454,7 +492,7 @@ def get_file_info(ctx, dir_path, file_name):
         sha256_hasher = hashlib.sha256()
         with open(file_info.file_path, 'rb') as file:
             # Read the file in small chunks to efficiently handle large files
-            for chunk in iter(lambda: file.read(4096), b''):
+            for chunk in iter(lambda: file.read(ctx.hash_chunk_size), b''):
                 sha256_hasher.update(chunk)
 
         # Get the hexadecimal representation of the hash
@@ -468,7 +506,9 @@ def get_file_info(ctx, dir_path, file_name):
 #     Extract date in the name of the file
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Extract date from filename (best effort)
+#    -------------------------------------------------------------------------------------------
 def extract_date_from_filename(filename):
 
     # Define a regex pattern to capture dates in various formats
@@ -498,11 +538,13 @@ def extract_date_from_filename(filename):
 
 
 
-#
 #    ====================================================================
-#     OS Copy file function
+#     OS copy helper (single file)
 #    ====================================================================
 #
+#    -------------------------------------------------------------------------------------------
+#     Copy one file and update counters/logs
+#    -------------------------------------------------------------------------------------------
 def os_file_copy(ctx, filepath, dest, cmd, size):
 
     # Check reference directory
@@ -537,12 +579,13 @@ def os_file_copy(ctx, filepath, dest, cmd, size):
 
 
 
-#
 #    ====================================================================
-#     Copy file function, depending on the line command
+#     Copy file into YYYY/MM/DD folders
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Create date-based folders then copy the file
+#    -------------------------------------------------------------------------------------------
 def copy_file(ctx, file_path, dest, cmd, folder_date, size):
         
     # Create directory and subdirectories if not existing
@@ -569,12 +612,13 @@ def copy_file(ctx, file_path, dest, cmd, folder_date, size):
 
 
 
-#
 #    ====================================================================
-#     Directory browsing (for reference)
+#     Scan reference directory (rebuild DB)
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Hash and record files from the reference directory into the DB
+#    -------------------------------------------------------------------------------------------
 def read_reference(ctx, reference):
 
     ctx.logger.info("Considering %s as reference directory", reference)
@@ -588,46 +632,68 @@ def read_reference(ctx, reference):
     # ---> Files discovering. Thanks to Python, we just need to call an existing function...
     #
 
-    for dir_path, _, files in os.walk(reference, topdown=True):
+    futures = []
 
-        for file_name in files:
+    with ThreadPoolExecutor(max_workers=ctx.max_workers) as executor:
+        for dir_path, _, files in os.walk(reference, topdown=True):
 
-            extension = os.path.splitext(file_name)[1].lower()
+            for file_name in files:
 
-            if extension in PICT_EXT_LIST or extension in VIDEO_EXT_LIST or extension in RAW_PICT_EXT_LIST: 
+                extension = os.path.splitext(file_name)[1].lower()
 
-                # Check if filepath is existing in DB. If yes, we skip it. 
-                reference_file_path = os.path.join(dir_path, file_name)
-                res = ctx.cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
-                existing_file = res.fetchone()
-                        
-                if not existing_file:
+                if extension in PICT_EXT_LIST or extension in VIDEO_EXT_LIST or extension in RAW_PICT_EXT_LIST:
 
-                    file_info = get_file_info(ctx, dir_path, file_name)
-                    nb_dest_files = nb_dest_files + 1
+                    # Check if filepath is existing in DB. If yes, we skip it.
+                    reference_file_path = os.path.join(dir_path, file_name)
+                    res = ctx.cnx.execute("SELECT 1  FROM filelist WHERE file_path=?", (reference_file_path,))
+                    existing_file = res.fetchone()
 
-                    match file_info.walk_type:
-                        case "PIC":
-                            nb_dest_pics = nb_dest_pics + 1
-                        case "RAW":
-                            nb_dest_raw = nb_dest_raw + 1
-                        case "VIDEO":
-                            nb_dest_videos = nb_dest_videos + 1
+                    if not existing_file:
+                        futures.append(executor.submit(get_file_info, ctx, dir_path, file_name))
 
-                    if file_info.walk_type != "unknown":
+                        if len(futures) >= ctx.max_workers * 2:
+                            for finished in as_completed(futures[: ctx.max_workers]):
+                                file_info = finished.result()
+                                nb_dest_files = nb_dest_files + 1
 
-                        insert_into_DB(ctx, file_info)
+                                match file_info.walk_type:
+                                    case "PIC":
+                                        nb_dest_pics = nb_dest_pics + 1
+                                    case "RAW":
+                                        nb_dest_raw = nb_dest_raw + 1
+                                    case "VIDEO":
+                                        nb_dest_videos = nb_dest_videos + 1
+
+                                if file_info.walk_type != "unknown":
+                                    insert_into_DB(ctx, file_info)
+                            futures = futures[ctx.max_workers :]
+
+        for finished in as_completed(futures):
+            file_info = finished.result()
+            nb_dest_files = nb_dest_files + 1
+
+            match file_info.walk_type:
+                case "PIC":
+                    nb_dest_pics = nb_dest_pics + 1
+                case "RAW":
+                    nb_dest_raw = nb_dest_raw + 1
+                case "VIDEO":
+                    nb_dest_videos = nb_dest_videos + 1
+
+            if file_info.walk_type != "unknown":
+                insert_into_DB(ctx, file_info)
 
 
     return nb_dest_files, nb_dest_pics, nb_dest_raw, nb_dest_videos
 
 
-#
 #    ====================================================================
-#     Directory browsing (for multiple import_dir paths)
+#     Scan import sources + compute what to do
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Hash files from import sources and decide copy/import actions
+#    -------------------------------------------------------------------------------------------
 def read_import_dir(ctx, basepath_list, cmd):
 
     nb_import_dir_files = 0
@@ -639,77 +705,130 @@ def read_import_dir(ctx, basepath_list, cmd):
     nb_videos_to_import = 0
     t_copy_files = 0.0
 
-    # Loop over directories 
+    futures = []
 
-    for basepath in basepath_list:
+    # Loop over directories
 
-        line        = basepath.rstrip("\n").split(";")
+    with ThreadPoolExecutor(max_workers=ctx.max_workers) as executor:
+        for basepath in basepath_list:
+
+            line        = basepath.rstrip("\n").split(";")
         
-        if line[0] != '':
+            if line[0] != '':
 
-            basepath = line[0]
-            ctx.logger.info("Considering %s as import directory", basepath)
+                basepath = line[0]
+                ctx.logger.info("Considering %s as import directory", basepath)
 
-            for dir_path, _, files in os.walk(basepath, topdown=True):
+                for dir_path, _, files in os.walk(basepath, topdown=True):
 
-                for file_name in files:
+                    for file_name in files:
+                        futures.append(executor.submit(get_file_info, ctx, dir_path, file_name))
 
-                    file_info = get_file_info(ctx, dir_path, file_name)
+                        if len(futures) >= ctx.max_workers * 2:
+                            for finished in as_completed(futures[: ctx.max_workers]):
+                                file_info = finished.result()
 
-                    nb_import_dir_files = nb_import_dir_files + 1
+                                nb_import_dir_files = nb_import_dir_files + 1
 
+                                match file_info.walk_type:
+                                    case "PIC":
+                                        nb_import_dir_pics = nb_import_dir_pics + 1
+                                    case "RAW":
+                                        nb_import_dir_raw = nb_import_dir_raw + 1
+                                    case "VIDEO":
+                                        nb_import_dir_videos = nb_import_dir_videos + 1
+
+                                if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
+
+                                    # Check if the file is already in the DB
+                                    cursor = ctx.cnx.cursor()
+                                    cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
+                                    res = cursor.fetchone()
+
+                                    if res:
+                                        # existing
+                                        ctx.logger.info("%s existing in DB", file_info.file_path)
+                                    else:
+                                        # Counting files to be copied/imported
+                                        match file_info.walk_type:
+                                            case "PIC":
+                                                nb_pics_to_import = nb_pics_to_import + 1
+                                            case "RAW":
+                                                nb_raw_to_import = nb_raw_to_import + 1
+                                            case "VIDEO":
+                                                nb_videos_to_import = nb_videos_to_import + 1
+                                        # doing what has to be done
+                                        if cmd == "test":
+                                            t0_copy = time.time()
+                                            copy_file(ctx, file_info.file_path, ctx.config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
+                                            t_copy_files = t_copy_files + (time.time() - t0_copy)
+                                        elif cmd == "import":
+                                            t0_copy = time.time()
+                                            copy_file(ctx, file_info.file_path, ctx.config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
+                                            t_copy_files = t_copy_files + (time.time() - t0_copy)
+                                            file_info.original_path = os.path.dirname(file_info.file_path)
+                                            insert_into_DB(ctx, file_info)
+                                        elif cmd == "read":
+                                            ctx.logger.info("%s would have been copied", file_info.file_path)
+
+                            futures = futures[ctx.max_workers :]
+
+        for finished in as_completed(futures):
+            file_info = finished.result()
+
+            nb_import_dir_files = nb_import_dir_files + 1
+
+            match file_info.walk_type:
+                case "PIC":
+                    nb_import_dir_pics = nb_import_dir_pics + 1
+                case "RAW":
+                    nb_import_dir_raw = nb_import_dir_raw + 1
+                case "VIDEO":
+                    nb_import_dir_videos = nb_import_dir_videos + 1
+
+            if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
+
+                # Check if the file is already in the DB
+                cursor = ctx.cnx.cursor()
+                cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
+                res = cursor.fetchone()
+
+                if res:
+                    # existing
+                    ctx.logger.info("%s existing in DB", file_info.file_path)
+                else:
+                    # Counting files to be copied/imported
                     match file_info.walk_type:
                         case "PIC":
-                            nb_import_dir_pics = nb_import_dir_pics + 1
+                            nb_pics_to_import = nb_pics_to_import + 1
                         case "RAW":
-                            nb_import_dir_raw = nb_import_dir_raw + 1
+                            nb_raw_to_import = nb_raw_to_import + 1
                         case "VIDEO":
-                            nb_import_dir_videos = nb_import_dir_videos + 1
-
-                    if file_info.walk_type in ['PIC', 'VIDEO', 'RAW']:
-
-                        # Check if the file is already in the DB
-                        cursor = ctx.cnx.cursor()
-                        cursor.execute("SELECT * FROM filelist WHERE file_hash=?", (file_info.file_hash, ))
-                        res = cursor.fetchone()
-
-                        if res:
-                            # existing
-                            ctx.logger.info("%s existing in DB", file_info.file_path)
-                        else:
-                            # Counting files to be copied/imported
-                            match file_info.walk_type:
-                                case "PIC":
-                                    nb_pics_to_import = nb_pics_to_import + 1
-                                case "RAW":
-                                    nb_raw_to_import = nb_raw_to_import + 1
-                                case "VIDEO":
-                                    nb_videos_to_import = nb_videos_to_import + 1
-                            # doing what has to be done
-                            if cmd == "test":
-                                t0_copy = time.time()
-                                copy_file(ctx, file_info.file_path, ctx.config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
-                                t_copy_files = t_copy_files + (time.time() - t0_copy)
-                            elif cmd == "import":
-                                t0_copy = time.time()
-                                copy_file(ctx, file_info.file_path, ctx.config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
-                                t_copy_files = t_copy_files + (time.time() - t0_copy)
-                                file_info.original_path = dir_path
-                                insert_into_DB(ctx, file_info)
-                            elif cmd == "read":
-                                ctx.logger.info("%s would have been copied", file_info.file_path)
-
-                    pass
+                            nb_videos_to_import = nb_videos_to_import + 1
+                    # doing what has to be done
+                    if cmd == "test":
+                        t0_copy = time.time()
+                        copy_file(ctx, file_info.file_path, ctx.config["directories"]["trash"], cmd, file_info.folder_date, file_info.size)
+                        t_copy_files = t_copy_files + (time.time() - t0_copy)
+                    elif cmd == "import":
+                        t0_copy = time.time()
+                        copy_file(ctx, file_info.file_path, ctx.config["directories"]["reference"], cmd, file_info.folder_date, file_info.size)
+                        t_copy_files = t_copy_files + (time.time() - t0_copy)
+                        file_info.original_path = os.path.dirname(file_info.file_path)
+                        insert_into_DB(ctx, file_info)
+                    elif cmd == "read":
+                        ctx.logger.info("%s would have been copied", file_info.file_path)
         
     return nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
-#
 #    ====================================================================
-#     Directory calculation (for all files in many directories)
+#     Import sources lookup wrapper
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Time the import scan and return counters
+#    -------------------------------------------------------------------------------------------
 def import_dir_lookup(ctx, basepath_list, cmd):
 
     """
@@ -733,12 +852,13 @@ def import_dir_lookup(ctx, basepath_list, cmd):
     return t_import_dir_lookup, nb_import_dir_files, nb_import_dir_pics, nb_import_dir_raw, nb_import_dir_videos, nb_pics_to_import, nb_raw_to_import, nb_videos_to_import, t_copy_files
 
 
-#
 #    ====================================================================
-#     Directory calculation (for all files in many directories)
+#     Reference lookup wrapper
 #    ====================================================================
 #
-
+#    -------------------------------------------------------------------------------------------
+#     Time the reference scan and return counters
+#    -------------------------------------------------------------------------------------------
 def reference_lookup(ctx, reference):
 
     """
@@ -763,14 +883,13 @@ def reference_lookup(ctx, reference):
 
 
 
-#
+#    ====================================================================
+#     Main
 #    ====================================================================
 #
-#     Main part
-#
-#    ====================================================================
-#
-
+#    -------------------------------------------------------------------------------------------
+#     Parse args, run selected command, and print summary
+#    -------------------------------------------------------------------------------------------
 def main():
 
     # Colorama init
@@ -798,6 +917,8 @@ def main():
     #
 
     ctx = AppContext(config=config, logger=logger)
+    ctx.hash_chunk_size = config.getint("performance", "hash_chunk_size", fallback=DEFAULT_HASH_CHUNK_SIZE)
+    ctx.max_workers = config.getint("performance", "max_workers", fallback=DEFAULT_MAX_WORKERS)
     db_connect(ctx, db)
 
     #
@@ -849,6 +970,8 @@ def main():
     print_and_log(ctx, "="*72)
     print_and_log(ctx, "Command: ", cmd)
     print_and_log(ctx, "DB records before run: ", ctx.nb_db_records)
+    print_and_log(ctx, "Workers: ", ctx.max_workers)
+    print_and_log(ctx, "Hash chunk size: {} bytes".format(ctx.hash_chunk_size))
     print_and_log(ctx, "="*72)
     print_and_log(ctx, "REFERENCE (scan)")
     print_and_log(ctx, "Reference scan duration: {:.2f} sec.".format(t_dest_lookup))

@@ -40,6 +40,12 @@ python photo-walk.py import
 
 ## Configuration (config.ini)
 
+Copy the example file and adjust the paths:
+
+```bash
+cp config.ini.example config.ini
+```
+
 ```ini
 [directories]
 reference=
@@ -52,22 +58,30 @@ file=app.log
 
 [db]
 name=photo-walk.db
+
+[performance]
+# Bytes per chunk when hashing files
+hash_chunk_size=1048576
+# Number of worker threads for file metadata/hash
+max_workers=4
 ```
 
 ## Notes
 
-- Formats supportes: images (jpg, png, tif, webp...), RAW (arw, cr2, nef, raf...) et videos (mov, mp4, avi, ...).
-- Le hash SHA-256 est utilise pour identifier un fichier, independamment de son nom ou de son emplacement.
-- Les logs sont ecrits dans `./log/` avec un fichier par execution.
+- Supported formats: images (jpg, png, tif, webp...), RAW (arw, cr2, nef, raf...) and videos (mov, mp4, avi, ...).
+- SHA-256 hash is used to identify a file, independent of its name or location.
+- Logs are written to `./log/` with one file per run.
+- The `misc/` folder contains scripts or archived versions not used in the main flow.
+- Performance tuning is optional; if `[performance]` is missing, defaults are used.
 
-## Exemple de flux
+## Example flow
 
 ```
-[Sources] ---> read ---> (liste des fichiers a importer)
+[Sources] ---> read ---> (list of files to import)
      |
-     +------> test  ---> (copie en dossier de test, sans DB)
+     +------> test  ---> (copy to test folder, no DB update)
      |
      +------> import ---> [Reference] + [DB]
 
-rebuild ---> [Reference] ---> (ajout en DB)
+rebuild ---> [Reference] ---> (add to DB)
 ```
